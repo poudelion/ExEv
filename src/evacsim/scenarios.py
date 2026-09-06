@@ -14,11 +14,14 @@ def grid_scenario(
 ) -> tuple[CityNetwork, list[Agent], list[Shelter]]:
     if width < 2 or height < 2:
         raise ValueError("grid dimensions must be at least 2")
+    if agent_count < 0:
+        raise ValueError("agent_count must be non-negative")
     rng = random.Random(seed)
     network = CityNetwork()
     for y in range(height):
         for x in range(width):
             node = f"{x},{y}"
+            network.set_position(node, x, y)
             if x + 1 < width:
                 network.add_edge(node, f"{x + 1},{y}", distance=1.0, capacity=40)
             if y + 1 < height:
@@ -39,4 +42,3 @@ def grid_scenario(
         for i in range(agent_count)
     ]
     return network, agents, shelters
-

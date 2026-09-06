@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from math import isfinite
 
 
 class AgentStatus(str, Enum):
@@ -21,11 +22,11 @@ class Edge:
     blocked: bool = False
 
     def __post_init__(self) -> None:
-        if self.distance <= 0:
+        if not isfinite(self.distance) or self.distance <= 0:
             raise ValueError("edge distance must be positive")
-        if self.capacity <= 0:
+        if not isinstance(self.capacity, int) or self.capacity <= 0:
             raise ValueError("edge capacity must be positive")
-        if self.speed_limit <= 0:
+        if not isfinite(self.speed_limit) or self.speed_limit <= 0:
             raise ValueError("edge speed_limit must be positive")
 
 
@@ -34,6 +35,12 @@ class Shelter:
     node: str
     capacity: int
     occupants: int = 0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.capacity, int) or self.capacity < 0:
+            raise ValueError("shelter capacity must be a non-negative integer")
+        if not isinstance(self.occupants, int) or not 0 <= self.occupants <= self.capacity:
+            raise ValueError("shelter occupants must be between zero and capacity")
 
     @property
     def available(self) -> int:
@@ -64,6 +71,6 @@ class Agent:
     total_waiting_time: int = 0
 
     def __post_init__(self) -> None:
-        if self.speed <= 0:
+        if not isfinite(self.speed) or self.speed <= 0:
             raise ValueError("agent speed must be positive")
         self.current_node = self.origin

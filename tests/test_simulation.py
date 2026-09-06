@@ -4,9 +4,77 @@ from evacsim.models import Agent, AgentStatus, Shelter
 from evacsim.network import CityNetwork
 from evacsim.scenarios import grid_scenario
 from evacsim.simulation import EvacuationSimulation, SimulationConfig
+from evacsim.routing import AStarRouter, CongestionAwareRouter, DijkstraRouter
 
 
 class SimulationTests(unittest.TestCase):
+    def test_movement_uses_tick_snapshot_independent_of_iteration_order(self):
+        progress_values = []
+        for reverse in (False, True):
+            network = CityNetwork()
+            network.add_edge("A", "B", 1, 2)
+            near, far = Agent(0, "A"), Agent(1, "A")
+            sim = EvacuationSimulation(network, [far, near] if reverse else [near, far], [Shelter("B", 2)])
+            for agent in (near, far):
+                agent.status = AgentStatus.TRAVELING
+                agent.edge = ("A", "B")
+                network.enter("A", "B")
+            near.edge_progress = 0.99
+            sim._advance_travelers()
+            progress_values.append(far.edge_progress)
+        self.assertAlmostEqual(progress_values[0], 1 / 3)
+        self.assertEqual(progress_values[0], progress_values[1])
+
+    def test_noncontiguous_id_priority_rotates(self):
+        network = CityNetwork()
+        network.add_edge("A", "B", 0.1, 1)
+        agents = [Agent(0, "A"), Agent(2, "A")]
+        sim = EvacuationSimulation(network, agents, [Shelter("B", 2)])
+        sim.tick = 1
+        sim.step()
+        self.assertEqual(agents[1].status, AgentStatus.TRAVELING)
+        self.assertEqual(agents[0].status, AgentStatus.WAITING)
+
+    def test_shortest_and_congestion_routers_conserve_population_and_capacity(self):
+        for router_type in (DijkstraRouter, AStarRouter, CongestionAwareRouter):
+            network, agents, shelters = grid_scenario(5, 4, 75, seed=4)
+            sim = EvacuationSimulation(network, agents, shelters, router_type())
+            while sim.tick < 500 and sim._has_active_agents():
+                sim.step()
+                self.assertEqual(len(agents), sum(a.status in (AgentStatus.WAITING, AgentStatus.TRAVELING,
+                                                            AgentStatus.EVACUATED, AgentStatus.STRANDED) for a in agents))
+                self.assertEqual(sum(s.occupants for s in shelters),
+                                 sum(a.status == AgentStatus.EVACUATED for a in agents))
+                for edge in network.edges:
+                    occupied = sum(a.edge == (edge.source, edge.target) for a in agents)
+                    self.assertEqual(network.occupancy(edge.source, edge.target), occupied)
+                    self.assertLessEqual(occupied, edge.capacity)
+                self.assertTrue(all(s.occupants <= s.capacity for s in shelters))
+            self.assertEqual(sim.result().evacuated, 75, router_type.__name__)
+
+    def test_empty_population_capped_run_and_progress(self):
+        network, agents, shelters = grid_scenario(2, 2, 0)
+        self.assertEqual(EvacuationSimulation(network, agents, shelters).run().evacuation_rate, 1)
+        network, agents, shelters = grid_scenario(4, 4, 10)
+        ticks = []
+        sim = EvacuationSimulation(network, agents, shelters, config=SimulationConfig(max_ticks=1))
+        result = sim.run(progress=lambda current: ticks.append(current.tick), progress_interval=1)
+        self.assertEqual(result.unfinished, 10)
+        self.assertEqual(result.elapsed_ticks, 1)
+        self.assertEqual(ticks[0], 0)
+        self.assertEqual(ticks[-1], 1)
+        self.assertGreaterEqual(result.wall_seconds, result.preparation_seconds + result.routing_seconds)
+
+    def test_invalid_scenario_inputs(self):
+        with self.assertRaises(ValueError):
+            grid_scenario(agent_count=-1)
+        with self.assertRaises(ValueError):
+            SimulationConfig(max_ticks=0)
+        with self.assertRaises(ValueError):
+            Agent(0, "A", float("nan"))
+        with self.assertRaises(ValueError):
+            Shelter("A", -1)
+
     def test_agents_evacuate_to_shelter(self) -> None:
         network = CityNetwork()
         network.add_edge("A", "B", distance=2, capacity=2)

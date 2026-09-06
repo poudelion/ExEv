@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass
 from statistics import mean
+from time import perf_counter
 
 from .models import Agent, AgentStatus, Shelter
 from .network import CityNetwork
-from .routing import RoutingStrategy, ShortestDistanceRouter
+from .routing import RoutingStats, RoutingStrategy, ShortestDistanceRouter
 
 
 @dataclass(frozen=True, slots=True)
 class SimulationConfig:
     max_ticks: int = 10_000
     reroute_wait_threshold: int = 10
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.max_ticks, int) or self.max_ticks < 1:
+            raise ValueError("max_ticks must be a positive integer")
+        if not isinstance(self.reroute_wait_threshold, int) or self.reroute_wait_threshold < 1:
+            raise ValueError("reroute_wait_threshold must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +34,15 @@ class SimulationResult:
     max_evacuation_time: int | None
     mean_distance_traveled: float
     mean_waiting_time: float
+    algorithm: str = "custom"
+    routing_seconds: float = 0.0
+    preparation_seconds: float = 0.0
+    wall_seconds: float = 0.0
+    route_calls: int = 0
+    route_searches: int = 0
+    cache_hits: int = 0
+    expanded_nodes: int = 0
+    peak_congestion: float = 0.0
 
     @property
     def evacuation_rate(self) -> float:
@@ -43,24 +60,75 @@ class EvacuationSimulation:
     ) -> None:
         if len({agent.id for agent in agents}) != len(agents):
             raise ValueError("agent IDs must be unique")
+        if len({shelter.node for shelter in shelters}) != len(shelters):
+            raise ValueError("shelter nodes must be unique")
+        nodes = network.nodes
+        if any(agent.current_node not in nodes for agent in agents):
+            raise ValueError("all agent origins must be network nodes")
+        if any(shelter.node not in nodes for shelter in shelters):
+            raise ValueError("all shelters must be network nodes")
+        if any(agent.status != AgentStatus.WAITING or agent.edge is not None for agent in agents):
+            raise ValueError("start each simulation with fresh waiting agents")
+        if any(network.occupancy_snapshot().values()):
+            raise ValueError("start each simulation with an empty road network")
         self.network = network
         self.agents = agents
         self.shelters = {shelter.node: shelter for shelter in shelters}
         self.router = router or ShortestDistanceRouter()
         self.config = config or SimulationConfig()
         self.tick = 0
+        self._ranks = {agent.id: rank for rank, agent in enumerate(sorted(agents, key=lambda a: a.id))}
+        self._prepared = False
+        self._wall_seconds = 0.0
+        self._run_started: float | None = None
+        self._preparation_seconds = 0.0
+        self._routing_seconds = 0.0
+        self._route_calls = 0
+        self._peak_congestion = 0.0
 
-    def run(self) -> SimulationResult:
-        while self.tick < self.config.max_ticks and self._has_active_agents():
-            self.step()
+    def run(self, progress: Callable[[EvacuationSimulation], None] | None = None,
+            progress_interval: int = 50) -> SimulationResult:
+        if not isinstance(progress_interval, int) or progress_interval < 1:
+            raise ValueError("progress_interval must be a positive integer")
+        self._run_started = perf_counter()
+        try:
+            if progress is not None:
+                progress(self)
+            self._prepare()
+            while self.tick < self.config.max_ticks and self._has_active_agents():
+                self.step()
+                if progress is not None and self.tick % progress_interval == 0:
+                    progress(self)
+            if progress is not None:
+                progress(self)
+        finally:
+            self._wall_seconds += perf_counter() - self._run_started
+            self._run_started = None
         return self.result()
 
+    def _prepare(self) -> None:
+        if not self._prepared:
+            start = perf_counter()
+            prepare = getattr(self.router, "prepare", None)
+            if prepare is not None:
+                prepare(self.agents, self.network, self.shelters)
+            self._preparation_seconds += perf_counter() - start
+            self._prepared = True
+
     def step(self) -> None:
+        self._prepare()
         self._advance_travelers()
+        begin_tick = getattr(self.router, "begin_tick", None)
+        if begin_tick is not None:
+            start = perf_counter()
+            begin_tick(self.network, self.shelters, self.tick)
+            self._routing_seconds += perf_counter() - start
         self._process_nodes()
         self.tick += 1
 
     def _advance_travelers(self) -> None:
+        # Every traveler sees the same occupancy for this movement phase.
+        occupancy = self.network.occupancy_snapshot()
         for agent in self.agents:
             if agent.status != AgentStatus.TRAVELING or agent.edge is None:
                 continue
@@ -68,7 +136,8 @@ class EvacuationSimulation:
             distance = self.network.edge(source, target).distance
             delta = min(
                 distance - agent.edge_progress,
-                self.network.travel_rate(source, target, agent.speed),
+                self.network.travel_rate(source, target, agent.speed,
+                                         occupancy=occupancy.get((source, target), 0)),
             )
             agent.edge_progress += delta
             agent.distance_traveled += delta
@@ -82,11 +151,12 @@ class EvacuationSimulation:
 
     def _process_nodes(self) -> None:
         waiting = [agent for agent in self.agents if agent.status == AgentStatus.WAITING]
-        # Stable rotation avoids permanently favoring low IDs at bottlenecks.
-        waiting.sort(key=lambda agent: ((agent.id - self.tick) % max(1, len(self.agents))))
+        # Rotate ranks, so noncontiguous IDs cannot collide modulo population.
+        waiting.sort(key=lambda agent: ((self._ranks[agent.id] - self.tick) % max(1, len(self.agents))))
+        can_admit = getattr(self.router, "can_admit", lambda agent, node: True)
         for agent in waiting:
             shelter = self.shelters.get(agent.current_node)
-            if shelter and shelter.admit():
+            if shelter and can_admit(agent, agent.current_node) and shelter.admit():
                 agent.status = AgentStatus.EVACUATED
                 agent.evacuated_at = self.tick
                 continue
@@ -95,15 +165,28 @@ class EvacuationSimulation:
                 not agent.route
                 or agent.route_index >= len(agent.route) - 1
                 or agent.route[agent.route_index] != agent.current_node
+                or agent.route[-1] not in self.shelters
+                or self.shelters[agent.route[-1]].available == 0
                 or self.network.edge(
                     agent.route[agent.route_index], agent.route[agent.route_index + 1]
                 ).blocked
             )
-            if route_invalid or agent.waiting_time >= self.config.reroute_wait_threshold:
+            replan_at_node = getattr(self.router, "replan_at_nodes", False) and agent.route_index > 0
+            if route_invalid or replan_at_node or agent.waiting_time >= self.config.reroute_wait_threshold:
+                start = perf_counter()
                 route = self.router.route(agent, self.network, self.shelters, self.tick)
+                self._routing_seconds += perf_counter() - start
+                self._route_calls += 1
+                stats = getattr(self.router, "stats", None)
+                if stats is not None:
+                    stats.route_calls += 1
                 if route is None or len(route) < 2:
                     agent.status = AgentStatus.STRANDED
                     continue
+                if route[0] != agent.current_node or route[-1] not in self.shelters:
+                    raise ValueError("router returned a path with invalid endpoints")
+                if any(v not in self.network.neighbors(u) for u, v in zip(route, route[1:])):
+                    raise ValueError("router returned a path through missing or blocked roads")
                 agent.route = route
                 agent.route_index = 0
                 agent.waiting_time = 0
@@ -112,6 +195,7 @@ class EvacuationSimulation:
             target = agent.route[agent.route_index + 1]
             if self.network.can_enter(source, target):
                 self.network.enter(source, target)
+                self._peak_congestion = max(self._peak_congestion, self.network.congestion(source, target))
                 agent.edge = (source, target)
                 agent.status = AgentStatus.TRAVELING
                 agent.started_at = self.tick if agent.started_at is None else agent.started_at
@@ -127,6 +211,10 @@ class EvacuationSimulation:
     def result(self) -> SimulationResult:
         counts = Counter(agent.status for agent in self.agents)
         times = [agent.evacuated_at for agent in self.agents if agent.evacuated_at is not None]
+        stats = getattr(self.router, "stats", RoutingStats())
+        wall_seconds = self._wall_seconds
+        if self._run_started is not None:
+            wall_seconds += perf_counter() - self._run_started
         return SimulationResult(
             elapsed_ticks=self.tick,
             total_agents=len(self.agents),
@@ -137,4 +225,13 @@ class EvacuationSimulation:
             max_evacuation_time=max(times) if times else None,
             mean_distance_traveled=mean(a.distance_traveled for a in self.agents) if self.agents else 0.0,
             mean_waiting_time=mean(a.total_waiting_time for a in self.agents) if self.agents else 0.0,
+            algorithm=getattr(self.router, "name", type(self.router).__name__),
+            routing_seconds=self._routing_seconds,
+            preparation_seconds=self._preparation_seconds,
+            wall_seconds=wall_seconds,
+            route_calls=self._route_calls,
+            route_searches=stats.searches,
+            cache_hits=stats.cache_hits,
+            expanded_nodes=stats.expanded_nodes,
+            peak_congestion=self._peak_congestion,
         )

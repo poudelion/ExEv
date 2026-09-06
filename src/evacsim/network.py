@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import replace
+from math import isfinite
 
 from .models import Edge
 
@@ -13,6 +14,37 @@ class CityNetwork:
         self._adjacency: dict[str, list[str]] = defaultdict(list)
         self._edges: dict[tuple[str, str], Edge] = {}
         self._occupancy: dict[tuple[str, str], int] = defaultdict(int)
+        self._incoming: dict[str, list[str]] = defaultdict(list)
+        self._positions: dict[str, tuple[float, float]] = {}
+        self._topology_version = 0
+
+    @property
+    def topology_version(self) -> int:
+        """Changes to geometry, costs, or closures invalidate route caches."""
+        return self._topology_version
+
+    @property
+    def edges(self) -> tuple[Edge, ...]:
+        return tuple(self._edges.values())
+
+    def add_node(self, node: str) -> None:
+        if node not in self._adjacency:
+            self._adjacency[node] = []
+            self._topology_version += 1
+
+    def set_position(self, node: str, x: float, y: float) -> None:
+        if not isfinite(x) or not isfinite(y):
+            raise ValueError("coordinates must be finite")
+        self.add_node(node)
+        if self._positions.get(node) != (x, y):
+            self._positions[node] = (x, y)
+            self._topology_version += 1
+
+    def position(self, node: str) -> tuple[float, float] | None:
+        return self._positions.get(node)
+
+    def occupancy_snapshot(self) -> dict[tuple[str, str], int]:
+        return dict(self._occupancy)
 
     @property
     def nodes(self) -> set[str]:
@@ -32,15 +64,28 @@ class CityNetwork:
         *,
         bidirectional: bool = True,
     ) -> None:
-        self._add_directed(Edge(source, target, distance, capacity, speed_limit))
-        if bidirectional:
-            self._add_directed(Edge(target, source, distance, capacity, speed_limit))
+        edges = [Edge(source, target, distance, capacity, speed_limit)]
+        if bidirectional and source != target:
+            edges.append(Edge(target, source, distance, capacity, speed_limit))
+        # Validate both directions before mutating either direction.
+        if any(self._occupancy.get((edge.source, edge.target), 0) for edge in edges):
+            raise ValueError("cannot replace an occupied edge")
+        for edge in edges:
+            self._add_directed(edge)
 
     def _add_directed(self, edge: Edge) -> None:
         key = (edge.source, edge.target)
+        if self._occupancy.get(key, 0):
+            raise ValueError("cannot replace an occupied edge")
         if key not in self._edges:
             self._adjacency[edge.source].append(edge.target)
+            self._incoming[edge.target].append(edge.source)
         self._edges[key] = edge
+        self._topology_version += 1
+
+    def predecessors(self, node: str) -> list[str]:
+        return [source for source in self._incoming.get(node, ())
+                if not self._edges[(source, node)].blocked]
 
     def neighbors(self, node: str, *, include_blocked: bool = False) -> list[str]:
         if include_blocked:
@@ -78,13 +123,16 @@ class CityNetwork:
 
     def set_blocked(self, source: str, target: str, blocked: bool = True) -> None:
         key = (source, target)
-        self._edges[key] = replace(self._edges[key], blocked=blocked)
+        if self._edges[key].blocked != blocked:
+            self._edges[key] = replace(self._edges[key], blocked=blocked)
+            self._topology_version += 1
 
-    def travel_rate(self, source: str, target: str, agent_speed: float) -> float:
+    def travel_rate(
+        self, source: str, target: str, agent_speed: float, *, occupancy: int | None = None
+    ) -> float:
         """Distance per tick under a deterministic volume-delay relationship."""
         edge = self.edge(source, target)
         free_flow = min(agent_speed, edge.speed_limit)
-        load = self.congestion(source, target)
+        load = (self.occupancy(source, target) if occupancy is None else occupancy) / edge.capacity
         slowdown = 1.0 + 2.0 * load * load
         return free_flow / slowdown
-

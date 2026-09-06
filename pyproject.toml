@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "evacsim"
-version = "0.1.0"
+version = "0.2.0"
 description = "Research simulator for dynamic evacuation routing and optimization"
 requires-python = ">=3.11"
 
@@ -13,4 +13,3 @@ evacsim = "evacsim.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
