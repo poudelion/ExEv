@@ -16,12 +16,20 @@ class CityNetwork:
         self._occupancy: dict[tuple[str, str], int] = defaultdict(int)
         self._incoming: dict[str, list[str]] = defaultdict(list)
         self._positions: dict[str, tuple[float, float]] = {}
+        self._edge_hazards: dict[tuple[str, str], float] = defaultdict(float)
+        self._node_hazards: dict[str, float] = defaultdict(float)
         self._topology_version = 0
+        self._hazard_version = 0
 
     @property
     def topology_version(self) -> int:
         """Changes to geometry, costs, or closures invalidate route caches."""
         return self._topology_version
+
+    @property
+    def hazard_version(self) -> int:
+        """Changes to hazard intensity invalidate hazard-aware route caches."""
+        return self._hazard_version
 
     @property
     def edges(self) -> tuple[Edge, ...]:
@@ -99,6 +107,9 @@ class CityNetwork:
     def edge(self, source: str, target: str) -> Edge:
         return self._edges[(source, target)]
 
+    def has_edge(self, source: str, target: str) -> bool:
+        return (source, target) in self._edges
+
     def occupancy(self, source: str, target: str) -> int:
         return self._occupancy[(source, target)]
 
@@ -126,6 +137,31 @@ class CityNetwork:
         if self._edges[key].blocked != blocked:
             self._edges[key] = replace(self._edges[key], blocked=blocked)
             self._topology_version += 1
+
+    def set_edge_hazard(self, source: str, target: str, intensity: float) -> None:
+        if not isfinite(intensity) or intensity < 0:
+            raise ValueError("hazard intensity must be finite and non-negative")
+        key = (source, target)
+        if key not in self._edges:
+            raise KeyError(key)
+        if self._edge_hazards[key] != intensity:
+            self._edge_hazards[key] = intensity
+            self._hazard_version += 1
+
+    def edge_hazard(self, source: str, target: str) -> float:
+        return self._edge_hazards[(source, target)]
+
+    def set_node_hazard(self, node: str, intensity: float) -> None:
+        if not isfinite(intensity) or intensity < 0:
+            raise ValueError("hazard intensity must be finite and non-negative")
+        if node not in self.nodes:
+            raise KeyError(node)
+        if self._node_hazards[node] != intensity:
+            self._node_hazards[node] = intensity
+            self._hazard_version += 1
+
+    def node_hazard(self, node: str) -> float:
+        return self._node_hazards[node]
 
     def travel_rate(
         self, source: str, target: str, agent_speed: float, *, occupancy: int | None = None

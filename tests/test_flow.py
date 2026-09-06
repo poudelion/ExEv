@@ -5,10 +5,10 @@ import random
 import unittest
 from collections import Counter
 
-from evacsim.flow import MinCostFlowRouter
-from evacsim.models import Agent, Shelter
-from evacsim.network import CityNetwork
-from evacsim.simulation import EvacuationSimulation
+from exev.flow import MinCostFlowRouter
+from exev.models import Agent, Shelter
+from exev.network import CityNetwork
+from exev.simulation import EvacuationSimulation
 
 
 def transport_network(costs: list[list[int | None]]) -> CityNetwork:

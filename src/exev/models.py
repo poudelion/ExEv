@@ -52,6 +52,13 @@ class Shelter:
         self.occupants += 1
         return True
 
+    def set_capacity(self, capacity: int) -> None:
+        if not isinstance(capacity, int) or capacity < 0:
+            raise ValueError("shelter capacity must be a non-negative integer")
+        if capacity < self.occupants:
+            raise ValueError("shelter capacity cannot be lower than current occupancy")
+        self.capacity = capacity
+
 
 @dataclass(slots=True)
 class Agent:
@@ -69,6 +76,7 @@ class Agent:
     distance_traveled: float = 0.0
     waiting_time: int = 0
     total_waiting_time: int = 0
+    hazard_exposure: float = 0.0
 
     def __post_init__(self) -> None:
         if not isfinite(self.speed) or self.speed <= 0:

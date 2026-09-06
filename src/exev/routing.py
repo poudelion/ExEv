@@ -10,7 +10,13 @@ from typing import Protocol
 from .models import Agent, Shelter
 from .network import CityNetwork
 
-ROUTER_NAMES = ("dijkstra", "astar", "congestion-aware", "min-cost-flow")
+ROUTER_NAMES = (
+    "dijkstra",
+    "astar",
+    "congestion-aware",
+    "hazard-aware",
+    "min-cost-flow",
+)
 
 
 @dataclass(slots=True)
@@ -221,7 +227,7 @@ class CongestionAwareRouter(BaseRouter):
         if not isfinite(alpha) or alpha < 0:
             raise ValueError("alpha must be finite and non-negative")
         self.alpha = alpha
-        self._snapshot_key: tuple[CityNetwork, int, int] | None = None
+        self._snapshot_key: tuple[CityNetwork, int, int, int] | None = None
         self._occupancy: dict[tuple[str, str], int] = {}
         self._trees: dict[tuple[float, tuple[str, ...]], tuple[dict[str, str], set[str]]] = {}
 
@@ -232,11 +238,21 @@ class CongestionAwareRouter(BaseRouter):
         self._trees.clear()
 
     def begin_tick(self, network: CityNetwork, shelters: Mapping[str, Shelter], tick: int) -> None:
-        key = (network, network.topology_version, tick)
+        key = (network, network.topology_version, network.hazard_version, tick)
         if key != self._snapshot_key:
             self._snapshot_key = key
             self._occupancy = network.occupancy_snapshot()
             self._trees.clear()
+
+    def _edge_weight(
+        self, agent: Agent, network: CityNetwork, source: str, target: str
+    ) -> float:
+        edge = network.edge(source, target)
+        load = min(1.0, (self._occupancy.get((source, target), 0) + 1) / edge.capacity)
+        return (
+            edge.distance / min(agent.speed, edge.speed_limit)
+            * (1 + self.alpha * load**2)
+        )
 
     def route(self, agent: Agent, network: CityNetwork,
               shelters: Mapping[str, Shelter], tick: int) -> list[str] | None:
@@ -245,9 +261,7 @@ class CongestionAwareRouter(BaseRouter):
         key = (agent.speed, goals)
         if key not in self._trees:
             def weight(source: str, target: str) -> float:
-                edge = network.edge(source, target)
-                load = min(1.0, (self._occupancy.get((source, target), 0) + 1) / edge.capacity)
-                return edge.distance / min(agent.speed, edge.speed_limit) * (1 + self.alpha * load**2)
+                return self._edge_weight(agent, network, source, target)
 
             self._trees[key] = _reverse_tree(network, goals, weight, self.stats)
         else:
@@ -255,12 +269,41 @@ class CongestionAwareRouter(BaseRouter):
         return _tree_path(agent.current_node, self._trees[key])
 
 
-def create_router(name: str) -> RoutingStrategy:
+class HazardAwareRouter(CongestionAwareRouter):
+    """Travel-time routing with an explicit current-exposure penalty.
+
+    The exposure estimate combines time spent on the road at its current hazard
+    intensity with one tick at the target node. It reacts to observed hazards;
+    it does not predict future fire or flood spread.
+    """
+
+    name = "hazard-aware"
+
+    def __init__(self, alpha: float = 2.0, hazard_weight: float = 1.0) -> None:
+        super().__init__(alpha)
+        if not isfinite(hazard_weight) or hazard_weight < 0:
+            raise ValueError("hazard_weight must be finite and non-negative")
+        self.hazard_weight = hazard_weight
+
+    def _edge_weight(
+        self, agent: Agent, network: CityNetwork, source: str, target: str
+    ) -> float:
+        travel_time = super()._edge_weight(agent, network, source, target)
+        predicted_exposure = (
+            network.edge_hazard(source, target) * travel_time
+            + network.node_hazard(target)
+        )
+        return travel_time + self.hazard_weight * predicted_exposure
+
+
+def create_router(name: str, *, hazard_weight: float = 1.0) -> RoutingStrategy:
     if name == "min-cost-flow":
         from .flow import MinCostFlowRouter
         return MinCostFlowRouter()
     factories = {"dijkstra": DijkstraRouter, "astar": AStarRouter,
                  "congestion-aware": CongestionAwareRouter}
+    if name == "hazard-aware":
+        return HazardAwareRouter(hazard_weight=hazard_weight)
     if name not in factories:
         raise ValueError(f"unknown router: {name}")
     return factories[name]()

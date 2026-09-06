@@ -1,10 +1,10 @@
-# EvacSim
+# ExEv
 
-EvacSim is an undergraduate research prototype for studying evacuation routing
+ExEv is a prototype for studying evacuation routing
 and comparing classical, QUBO, and eventually quantum/hybrid optimization methods.
-Stages 1 and 2 provide a synthetic evacuation simulator and four classical
-baselines. The current experiments use static networks; evolving disasters and
-QUBO solvers are later stages.
+Stages 1 through 3 provide a synthetic evacuation simulator, five classical
+baselines, and deterministic dynamic-disaster scenarios. QUBO solvers are the
+next stage.
 
 ## Run a simulation
 
@@ -12,13 +12,19 @@ Python 3.11 or newer is required. There are no third-party runtime dependencies.
 From the project directory, this source command works without installation:
 
 ```bash
-PYTHONPATH=src python3 -m evacsim.cli --agents 5000 --width 12 --height 12
+PYTHONPATH=src python3 -m exev.cli --agents 5000 --width 12 --height 12
 ```
 
 Select another algorithm:
 
 ```bash
-PYTHONPATH=src python3 -m evacsim.cli --agents 10000 --width 20 --height 15 --router congestion-aware
+PYTHONPATH=src python3 -m exev.cli --agents 10000 --width 20 --height 15 --router congestion-aware
+```
+
+Add a dynamic disaster profile:
+
+```bash
+PYTHONPATH=src python3 -m exev.cli --agents 5000 --width 12 --height 12 --disaster fire
 ```
 
 The full option is `--agents`; the previous accidental abbreviation `--agent`
@@ -27,39 +33,39 @@ reports progress every 50 ticks. Progress goes to **stderr**, while the final
 JSON goes to **stdout**, so redirected results remain valid JSON.
 
 ```bash
-PYTHONPATH=src python3 -m evacsim.cli --agents 1000 --progress-every 20
-PYTHONPATH=src python3 -m evacsim.cli --agents 1000 --quiet
+PYTHONPATH=src python3 -m exev.cli --agents 1000 --progress-every 20
+PYTHONPATH=src python3 -m exev.cli --agents 1000 --quiet
 ```
 
 An optional virtual environment and editable installation expose the shorter
-`evacsim` command:
+`exev` command:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
-evacsim --agents 5000
+exev --agents 5000
 ```
 
 If an existing environment reports `ModuleNotFoundError`, use the source command
 above, or set `export PYTHONPATH="$PWD/src"` in that terminal before running
-`evacsim`. No changes to the system Python or the existing environment are needed
+`exev`. No changes to the system Python or the existing environment are needed
 for source execution. These commands assume the current directory is the project
 root.
 
 ## Compare the classical baselines
 
 ```bash
-PYTHONPATH=src python3 -m evacsim.cli --compare --agents 1000 --width 8 --height 8 --seed 7
+PYTHONPATH=src python3 -m exev.cli --compare --agents 1000 --width 8 --height 8 --seed 7
 ```
 
 Run several seeds and export a table:
 
 ```bash
-PYTHONPATH=src python3 -m evacsim.cli --compare --agents 1000 --width 8 --height 8 --seeds 7 8 9 --format csv --output comparison.csv --quiet
+PYTHONPATH=src python3 -m exev.cli --compare --agents 1000 --width 8 --height 8 --seeds 7 8 9 --format csv --output comparison.csv --quiet
 ```
 
-`--compare` runs all four methods for each seed. Every run reconstructs the
+`--compare` runs all five methods for each seed. Every run reconstructs the
 network, agents, shelters, and router from scratch. Therefore each method sees
 the same starting population and speeds for a seed, and no run inherits another
 run's occupied roads, filled shelters, or routing caches.
@@ -69,6 +75,7 @@ run's occupied roads, filled shelters, or routing caches.
 | `dijkstra` | Minimum distance to any shelter with space. A reverse, multi-source Dijkstra tree supplies routes for all origins; the tree is reused until topology or available shelter destinations change. |
 | `astar` | Minimum distance to any shelter with space. A* searches from each distinct origin and caches the result. A scaled Euclidean heuristic supplies a safe lower bound; missing geometry falls back to a zero heuristic. |
 | `congestion-aware` | Estimated travel time using an occupancy snapshot, road speed limits, and the agent's speed. Reverse trees are shared by speed and destination set within each tick. Agents reconsider routes at intersections and after waiting. |
+| `hazard-aware` | Current estimated travel time plus a configurable exposure penalty. It includes road intensity during predicted travel and one tick of intensity at the target node, and replans as observed hazards change. |
 | `min-cost-flow` | Global static assignment minimizing total distance subject to shelter capacities, with maximum feasible evacuation as the first objective. The resulting shelter assignments guide each agent's route. |
 
 Min-cost flow uses a residual network with supply at origins and capacity at
@@ -93,6 +100,50 @@ times. Congestion-aware routing estimates current conditions and can herd agents
 onto the same route; it does not forecast downstream queues or guarantee better
 evacuation times.
 
+## Dynamic disasters
+
+Use `--disaster` with one of four reproducible profiles:
+
+| Profile | Behavior |
+| --- | --- |
+| `none` | Static Stage 2 network, retained as the control condition. |
+| `road-closure` | At tick 10, every crossing in a central corridor except one bottleneck closes; the crossings reopen at tick 30. |
+| `fire` | A synthetic hazard spreads from the upper-left; node and road exposure increase while corridor crossings close progressively from top to bottom. |
+| `flood` | Flood exposure rises row by row, flooded corridor crossings close, and the lower shelter is unavailable until tick 30. |
+
+Compare all routers under the same flood timeline:
+
+```bash
+PYTHONPATH=src python3 -m exev.cli --compare --agents 1000 --width 8 --height 8 --disaster flood --quiet
+```
+
+Events apply at the beginning of their scheduled tick. New travelers cannot
+enter a road after it closes, while travelers already on it finish crossing.
+Waiting agents replan when a closure invalidates their route. If no route is
+currently available but future events remain, an agent waits instead of being
+declared permanently stranded. Shelter capacity cannot be reduced below its
+current occupancy.
+
+Hazard intensity is an abstract non-negative value accumulated once per tick at
+an agent's waiting node or occupied road. Dijkstra, A*, congestion-aware, and
+min-cost flow do not include it in their objective. `hazard-aware` adds current
+predicted exposure to estimated travel time. Its default weight is `1.0`; sweep
+the tradeoff with `--hazard-weight`. It reacts to current conditions but does
+not forecast future spread.
+
+```bash
+PYTHONPATH=src python3 -m exev.cli --router hazard-aware --disaster fire --hazard-weight 1.0
+```
+
+The fire and flood profiles are deterministic stress tests, not calibrated
+physical models or forecasts.
+
+Min-cost flow remains the deliberately static Stage 2 assignment baseline. It
+can find a new path to an assigned shelter after a road closure, but it does not
+reassign agents when shelter capacity changes. A flood run may therefore expose
+this limitation by leaving initially unassigned agents stranded after the final
+event. A later dynamic-flow baseline can address that separately.
+
 ## Results and experiment controls
 
 Single-run JSON keeps the original result fields at the top level. Comparison
@@ -113,6 +164,8 @@ version information, so each row can be interpreted independently.
 | `preparation_seconds` | Time spent preparing the router, including the initial min-cost-flow solve. |
 | `routing_seconds` | Time spent in routing calls and per-tick routing updates, excluding initial preparation. |
 | `route_calls`, `route_searches`, `cache_hits`, `expanded_nodes` | Routing activity counters for understanding repeated requests, reuse, and search work. |
+| `total_hazard_exposure`, `mean_hazard_exposure`, `max_hazard_exposure` | Abstract cumulative exposure across all agents and its per-agent summary. |
+| `events_processed` | Scheduled disaster events applied before the run ended. Events after every agent has reached a terminal state are not processed. |
 
 Search counters measure road shortest-path work, including preparation. They do
 not count the flow solver's internal residual-network iterations. Cache hits can
@@ -121,7 +174,8 @@ also occur during preparation; they need not sum with searches to route calls.
 `wall_seconds` already includes preparation and routing; do not add those fields
 to it. Use `--quiet` for timing comparisons to avoid terminal progress overhead.
 The run configuration records width, height, population, seed, maximum ticks,
-and rerouting threshold, alongside Python, platform, package, and model versions.
+rerouting threshold, disaster profile, and hazard weight, alongside Python,
+platform, package, and model versions.
 Timings depend on machine load and vary across repeated runs; outcome metrics
 and search counters are reproducible for the same configuration and code.
 
@@ -133,9 +187,9 @@ and progress intervals must be positive. Use either `--seed` or `--seeds`;
 without averaging away failed or incomplete evacuations.
 
 These exports are an initial benchmark runner. The broader Stage 5 framework
-will add scenario sweeps, uncertainty analysis, hazard exposure, fairness,
-and richer congestion measures. Peak road load alone is a coarse congestion
-indicator and often reaches 1.0 across methods.
+will add scenario sweeps, uncertainty analysis, fairness, and richer congestion
+measures. Peak road load alone is a coarse congestion indicator and often
+reaches 1.0 across methods.
 
 ## Model assumptions
 
@@ -165,16 +219,19 @@ appear in a run with 235 elapsed ticks. There is no conversion from these values
 to real minutes or meters yet.
 
 Blocked roads reject new entries and routing avoids them; travelers already on
-that road finish crossing it. The default CLI grid starts with no blocked roads.
-The API supports setting closures for custom scenarios, but there is no fire,
-flood, or scheduled disaster-event engine yet. A stranded outcome means no
-admissible route is available in the current model and is terminal for that run.
+that road finish crossing it. The default `none` profile starts with no blocked
+roads or hazards. Custom schedules can change directed or bidirectional road
+status, node and edge hazard intensity, and shelter capacity. A stranded outcome
+means no admissible route remains after the final scheduled event.
 
 Stage 2 corrects the earlier within-tick movement order effect by using a shared
 occupancy snapshot, and improves route invalidation when shelters fill. Cached
 algorithms may also choose different tied routes. Old Stage 1 output numbers
 therefore should not be compared directly with Stage 2 as evidence of algorithmic
-improvement. Exported runs identify this model as `stage2-synchronous-v1`.
+improvement. Stage 3 retains the synchronous movement rules and adds beginning-
+of-tick events and exposure accounting. Stage 3 v2 strengthens closures and adds
+hazard-aware routing. Exported runs identify this model as `stage3-dynamic-v2`;
+v1 output should remain labeled separately rather than being pooled with v2.
 
 ## Tests and package layout
 
@@ -183,20 +240,22 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
 The tests cover movement and capacity behavior, optimal shortest-path and flow
-assignments on small graphs, routing cache validity, reproducible comparisons,
-CLI validation, export parsing, and separation of progress from result output.
+assignments on small graphs, routing cache validity, scheduled closures and
+shelter reopening, hazard exposure, reproducible comparisons, CLI validation,
+export parsing, and separation of progress from result output.
 
 ```text
 pyproject.toml             Python package metadata and console command
-src/evacsim/__init__.py    public classes and source version
-src/evacsim/models.py      agents, edges, shelters, and statuses
-src/evacsim/network.py     graph, geometry, occupancy, and topology changes
-src/evacsim/routing.py     Dijkstra, A*, congestion-aware routing, and factory
-src/evacsim/flow.py        min-cost-flow assignment and routing
-src/evacsim/simulation.py  movement engine, progress callbacks, and metrics
-src/evacsim/scenarios.py   deterministic synthetic grid scenarios
-src/evacsim/experiments.py fresh-state comparisons and metadata
-src/evacsim/cli.py         command options, progress, JSON and CSV output
+src/exev/__init__.py       public classes and source version
+src/exev/models.py         agents, edges, shelters, and statuses
+src/exev/network.py        graph, geometry, occupancy, and topology changes
+src/exev/disasters.py      event scheduler and synthetic disaster profiles
+src/exev/routing.py        Dijkstra, A*, congestion-aware routing, and factory
+src/exev/flow.py           min-cost-flow assignment and routing
+src/exev/simulation.py     movement engine, progress callbacks, and metrics
+src/exev/scenarios.py      deterministic synthetic grid scenarios
+src/exev/experiments.py    fresh-state comparisons and metadata
+src/exev/cli.py            command options, progress, JSON and CSV output
 tests/                    simulation, routing, flow, and CLI/experiment checks
 ```
 
@@ -204,7 +263,8 @@ tests/                    simulation, routing, flow, and CLI/experiment checks
 
 1. Simulation foundation: implemented.
 2. Classical baselines and an initial comparison runner: implemented.
-3. Dynamic disasters: fire spread, flooding, road closures, and shelter changes.
+3. Dynamic disasters: deterministic fire/flood stress tests, road closures,
+   shelter changes, exposure metrics, and rerouting: implemented.
 4. QUBO optimization: route-assignment formulations and classical QUBO solvers.
 5. Experimental framework: automated scenario sweeps and richer evaluation.
 6. Quantum/hybrid: compatible subproblems on available hardware.

@@ -2,9 +2,15 @@ import itertools
 import random
 import unittest
 
-from evacsim.models import Agent, Shelter
-from evacsim.network import CityNetwork
-from evacsim.routing import AStarRouter, CongestionAwareRouter, DijkstraRouter, create_router
+from exev.models import Agent, Shelter
+from exev.network import CityNetwork
+from exev.routing import (
+    AStarRouter,
+    CongestionAwareRouter,
+    DijkstraRouter,
+    HazardAwareRouter,
+    create_router,
+)
 
 
 def distance(network, path):
@@ -102,6 +108,23 @@ class StaticRoutingTests(unittest.TestCase):
 
 
 class CongestionRoutingTests(unittest.TestCase):
+    def test_hazard_aware_router_detours_and_invalidates_same_tick_cache(self):
+        network = CityNetwork()
+        network.add_edge("A", "B", 1, 100, bidirectional=False)
+        network.add_edge("B", "S", 1, 100, bidirectional=False)
+        network.add_edge("A", "C", 2, 100, bidirectional=False)
+        network.add_edge("C", "S", 2, 100, bidirectional=False)
+        agent, shelters = Agent(1, "A"), {"S": Shelter("S", 1)}
+        router = HazardAwareRouter()
+
+        self.assertEqual(router.route(agent, network, shelters, 0), ["A", "B", "S"])
+        network.set_edge_hazard("A", "B", 2.0)
+        network.set_edge_hazard("B", "S", 2.0)
+        self.assertEqual(router.route(agent, network, shelters, 0), ["A", "C", "S"])
+        configured = create_router("hazard-aware", hazard_weight=3.5)
+        self.assertEqual(configured.name, "hazard-aware")
+        self.assertEqual(configured.hazard_weight, 3.5)
+
     def test_live_costs_detour_and_tick_snapshot(self):
         network = CityNetwork()
         network.add_edge("A", "B", 1, 1, bidirectional=False)

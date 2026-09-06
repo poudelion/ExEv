@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
+from .disasters import DISASTER_PROFILES
 from .experiments import ExperimentConfig, compare_routers, run_scenario
 from .routing import ROUTER_NAMES
 
@@ -24,9 +25,19 @@ def _integer_at_least(minimum: int):
     return parse
 
 
+def _nonnegative_float(value: str) -> float:
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a number") from exc
+    if not 0 <= number < float("inf"):
+        raise argparse.ArgumentTypeError("must be finite and non-negative")
+    return number
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Run or compare EvacSim Stage 2 classical routing baselines",
+        description="Run or compare ExEv routing under static or dynamic disasters",
         allow_abbrev=False,
     )
     parser.add_argument("--agents", type=_integer_at_least(0), default=5_000)
@@ -35,9 +46,17 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, help="scenario seed (default: 7)")
     parser.add_argument("--max-ticks", type=_integer_at_least(1), default=10_000)
     parser.add_argument("--reroute-wait", type=_integer_at_least(1), default=10)
+    parser.add_argument(
+        "--disaster", choices=DISASTER_PROFILES, default="none",
+        help="dynamic disaster profile (default: none)",
+    )
+    parser.add_argument(
+        "--hazard-weight", type=_nonnegative_float, default=1.0,
+        help="exposure penalty for hazard-aware routing (default: 1.0)",
+    )
     parser.add_argument("--router", choices=ROUTER_NAMES, help="default: dijkstra")
     parser.add_argument(
-        "--compare", action="store_true", help="run all four routing baselines"
+        "--compare", action="store_true", help="run all five routing baselines"
     )
     parser.add_argument(
         "--seeds", nargs="+", type=int, help="seeds to compare (requires --compare)"
@@ -83,6 +102,8 @@ def main(argv: list[str] | None = None) -> None:
         seed=args.seed if args.seed is not None else 7,
         max_ticks=args.max_ticks,
         reroute_wait_threshold=args.reroute_wait,
+        disaster_profile=args.disaster,
+        hazard_weight=args.hazard_weight,
     )
 
     def report(message: str) -> None:
@@ -107,9 +128,9 @@ def main(argv: list[str] | None = None) -> None:
             if status:
                 status(f"Results saved to {args.output.resolve()}")
     except OSError as exc:
-        parser.exit(1, f"evacsim: {exc}\n")
+        parser.exit(1, f"exev: {exc}\n")
     except KeyboardInterrupt:
-        parser.exit(130, "evacsim: interrupted\n")
+        parser.exit(130, "exev: interrupted\n")
 
 
 if __name__ == "__main__":

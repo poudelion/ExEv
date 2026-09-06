@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from statistics import mean
 from time import perf_counter
 
+from .disasters import DisasterSchedule
 from .models import Agent, AgentStatus, Shelter
 from .network import CityNetwork
 from .routing import RoutingStats, RoutingStrategy, ShortestDistanceRouter
@@ -43,6 +44,10 @@ class SimulationResult:
     cache_hits: int = 0
     expanded_nodes: int = 0
     peak_congestion: float = 0.0
+    total_hazard_exposure: float = 0.0
+    mean_hazard_exposure: float = 0.0
+    max_hazard_exposure: float = 0.0
+    events_processed: int = 0
 
     @property
     def evacuation_rate(self) -> float:
@@ -57,6 +62,7 @@ class EvacuationSimulation:
         shelters: list[Shelter],
         router: RoutingStrategy | None = None,
         config: SimulationConfig | None = None,
+        disaster_schedule: DisasterSchedule | None = None,
     ) -> None:
         if len({agent.id for agent in agents}) != len(agents):
             raise ValueError("agent IDs must be unique")
@@ -76,6 +82,8 @@ class EvacuationSimulation:
         self.shelters = {shelter.node: shelter for shelter in shelters}
         self.router = router or ShortestDistanceRouter()
         self.config = config or SimulationConfig()
+        self.disaster_schedule = disaster_schedule or DisasterSchedule()
+        self.disaster_schedule.validate(network, self.shelters)
         self.tick = 0
         self._ranks = {agent.id: rank for rank, agent in enumerate(sorted(agents, key=lambda a: a.id))}
         self._prepared = False
@@ -94,7 +102,6 @@ class EvacuationSimulation:
         try:
             if progress is not None:
                 progress(self)
-            self._prepare()
             while self.tick < self.config.max_ticks and self._has_active_agents():
                 self.step()
                 if progress is not None and self.tick % progress_interval == 0:
@@ -116,7 +123,9 @@ class EvacuationSimulation:
             self._prepared = True
 
     def step(self) -> None:
+        self.disaster_schedule.apply_tick(self.tick, self.network, self.shelters)
         self._prepare()
+        self._accumulate_hazard_exposure()
         self._advance_travelers()
         begin_tick = getattr(self.router, "begin_tick", None)
         if begin_tick is not None:
@@ -125,6 +134,13 @@ class EvacuationSimulation:
             self._routing_seconds += perf_counter() - start
         self._process_nodes()
         self.tick += 1
+
+    def _accumulate_hazard_exposure(self) -> None:
+        for agent in self.agents:
+            if agent.status == AgentStatus.TRAVELING and agent.edge is not None:
+                agent.hazard_exposure += self.network.edge_hazard(*agent.edge)
+            elif agent.status == AgentStatus.WAITING:
+                agent.hazard_exposure += self.network.node_hazard(agent.current_node)
 
     def _advance_travelers(self) -> None:
         # Every traveler sees the same occupancy for this movement phase.
@@ -181,7 +197,11 @@ class EvacuationSimulation:
                 if stats is not None:
                     stats.route_calls += 1
                 if route is None or len(route) < 2:
-                    agent.status = AgentStatus.STRANDED
+                    if self.disaster_schedule.has_pending:
+                        agent.waiting_time += 1
+                        agent.total_waiting_time += 1
+                    else:
+                        agent.status = AgentStatus.STRANDED
                     continue
                 if route[0] != agent.current_node or route[-1] not in self.shelters:
                     raise ValueError("router returned a path with invalid endpoints")
@@ -212,6 +232,7 @@ class EvacuationSimulation:
         counts = Counter(agent.status for agent in self.agents)
         times = [agent.evacuated_at for agent in self.agents if agent.evacuated_at is not None]
         stats = getattr(self.router, "stats", RoutingStats())
+        exposures = [agent.hazard_exposure for agent in self.agents]
         wall_seconds = self._wall_seconds
         if self._run_started is not None:
             wall_seconds += perf_counter() - self._run_started
@@ -234,4 +255,8 @@ class EvacuationSimulation:
             cache_hits=stats.cache_hits,
             expanded_nodes=stats.expanded_nodes,
             peak_congestion=self._peak_congestion,
+            total_hazard_exposure=sum(exposures),
+            mean_hazard_exposure=mean(exposures) if exposures else 0.0,
+            max_hazard_exposure=max(exposures, default=0.0),
+            events_processed=self.disaster_schedule.events_processed,
         )

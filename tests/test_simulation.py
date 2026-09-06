@@ -1,10 +1,10 @@
 import unittest
 
-from evacsim.models import Agent, AgentStatus, Shelter
-from evacsim.network import CityNetwork
-from evacsim.scenarios import grid_scenario
-from evacsim.simulation import EvacuationSimulation, SimulationConfig
-from evacsim.routing import AStarRouter, CongestionAwareRouter, DijkstraRouter
+from exev.models import Agent, AgentStatus, Shelter
+from exev.network import CityNetwork
+from exev.scenarios import grid_scenario
+from exev.simulation import EvacuationSimulation, SimulationConfig
+from exev.routing import AStarRouter, CongestionAwareRouter, DijkstraRouter, HazardAwareRouter
 
 
 class SimulationTests(unittest.TestCase):
@@ -36,7 +36,7 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(agents[0].status, AgentStatus.WAITING)
 
     def test_shortest_and_congestion_routers_conserve_population_and_capacity(self):
-        for router_type in (DijkstraRouter, AStarRouter, CongestionAwareRouter):
+        for router_type in (DijkstraRouter, AStarRouter, CongestionAwareRouter, HazardAwareRouter):
             network, agents, shelters = grid_scenario(5, 4, 75, seed=4)
             sim = EvacuationSimulation(network, agents, shelters, router_type())
             while sim.tick < 500 and sim._has_active_agents():

@@ -1,18 +1,20 @@
-"""Small, reproducible comparisons of the Stage 2 routing baselines."""
+"""Small, reproducible comparisons of routing under static or dynamic hazards."""
 
 from __future__ import annotations
 
 import platform
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, replace
+from math import isfinite
 from typing import Any
 
+from .disasters import DISASTER_PROFILES, grid_disaster_schedule
 from .routing import ROUTER_NAMES, create_router
 from .scenarios import grid_scenario
 from .simulation import EvacuationSimulation, SimulationConfig
 
 
-MODEL_VERSION = "stage2-synchronous-v1"
+MODEL_VERSION = "stage3-dynamic-v2"
 StatusCallback = Callable[[str], None]
 
 
@@ -24,6 +26,8 @@ class ExperimentConfig:
     seed: int = 7
     max_ticks: int = 10_000
     reroute_wait_threshold: int = 10
+    disaster_profile: str = "none"
+    hazard_weight: float = 1.0
 
     def __post_init__(self) -> None:
         if self.width < 2 or self.height < 2:
@@ -34,6 +38,10 @@ class ExperimentConfig:
             raise ValueError("max_ticks must be at least 1")
         if self.reroute_wait_threshold < 1:
             raise ValueError("reroute_wait_threshold must be at least 1")
+        if self.disaster_profile not in DISASTER_PROFILES:
+            raise ValueError(f"unknown disaster profile: {self.disaster_profile}")
+        if not isfinite(self.hazard_weight) or self.hazard_weight < 0:
+            raise ValueError("hazard_weight must be finite and non-negative")
 
 
 def runtime_metadata() -> dict[str, str]:
@@ -58,8 +66,8 @@ def run_scenario(
     """Run one algorithm on fresh state, returning a flat exportable record."""
     if progress_interval < 1:
         raise ValueError("progress_interval must be at least 1")
-    router = create_router(algorithm)
-    label = f"[{algorithm} seed={config.seed}]"
+    router = create_router(algorithm, hazard_weight=config.hazard_weight)
+    label = f"[{algorithm} disaster={config.disaster_profile} seed={config.seed}]"
     if status:
         status(
             f"{label} Preparing {config.agent_count:,} agents on a "
@@ -67,6 +75,9 @@ def run_scenario(
         )
     network, agents, shelters = grid_scenario(
         config.width, config.height, config.agent_count, config.seed
+    )
+    disaster_schedule = grid_disaster_schedule(
+        config.width, config.height, config.agent_count, config.disaster_profile
     )
     simulation = EvacuationSimulation(
         network,
@@ -77,6 +88,7 @@ def run_scenario(
             max_ticks=config.max_ticks,
             reroute_wait_threshold=config.reroute_wait_threshold,
         ),
+        disaster_schedule=disaster_schedule,
     )
 
     def report(sim: EvacuationSimulation) -> None:
