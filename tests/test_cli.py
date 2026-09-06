@@ -28,7 +28,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result["evacuated"], 10)
         self.assertEqual(result["evacuation_rate"], 1.0)
         self.assertEqual(result["seed"], 7)
-        self.assertEqual(result["model_version"], "stage3-dynamic-v2")
+        self.assertEqual(result["model_version"], "stage4-qubo-v1")
         self.assertEqual(result["disaster_profile"], "none")
         self.assertIn("Preparing", stderr)
         self.assertIn("tick=0", stderr)
@@ -90,6 +90,10 @@ class CliTests(unittest.TestCase):
             ["--progress-every", "0"], ["--router", "unknown"],
             ["--disaster", "unknown"],
             ["--hazard-weight", "-1"], ["--hazard-weight", "nan"],
+            ["--qubo-batch-size", "0"],
+            ["--qubo-routes-per-shelter", "0"],
+            ["--qubo-sweeps", "0"],
+            ["--qubo-restarts", "0"],
             ["--seeds", "1"], ["--compare", "--router", "astar"],
             ["--compare", "--seed", "1", "--seeds", "2"],
             ["--compare", "--seeds", "1", "1"],
@@ -156,7 +160,10 @@ class ExperimentTests(unittest.TestCase):
         for changes in ({"agent_count": -1}, {"width": 1}, {"height": 1},
                         {"max_ticks": 0}, {"reroute_wait_threshold": 0},
                         {"disaster_profile": "tornado"}, {"hazard_weight": -1},
-                        {"hazard_weight": float("nan")}):
+                        {"hazard_weight": float("nan")},
+                        {"qubo_batch_size": 0}, {"qubo_routes_per_shelter": 0},
+                        {"qubo_sweeps": 0},
+                        {"qubo_restarts": 0}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
                 ExperimentConfig(**changes)
         with self.assertRaises(ValueError):

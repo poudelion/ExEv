@@ -16,6 +16,7 @@ ROUTER_NAMES = (
     "congestion-aware",
     "hazard-aware",
     "min-cost-flow",
+    "qubo-sa",
 )
 
 
@@ -296,10 +297,31 @@ class HazardAwareRouter(CongestionAwareRouter):
         return travel_time + self.hazard_weight * predicted_exposure
 
 
-def create_router(name: str, *, hazard_weight: float = 1.0) -> RoutingStrategy:
+def create_router(
+    name: str,
+    *,
+    hazard_weight: float = 1.0,
+    qubo_batch_size: int = 8,
+    qubo_routes_per_shelter: int = 3,
+    qubo_congestion_weight: float = 1.0,
+    qubo_sweeps: int = 100,
+    qubo_restarts: int = 3,
+    seed: int = 7,
+) -> RoutingStrategy:
     if name == "min-cost-flow":
         from .flow import MinCostFlowRouter
         return MinCostFlowRouter()
+    if name == "qubo-sa":
+        from .qubo import QUBOSimulatedAnnealingRouter
+        return QUBOSimulatedAnnealingRouter(
+            routes_per_shelter=qubo_routes_per_shelter,
+            congestion_weight=qubo_congestion_weight,
+            batch_size=qubo_batch_size,
+            sweeps=qubo_sweeps,
+            restarts=qubo_restarts,
+            seed=seed,
+            hazard_weight=hazard_weight,
+        )
     factories = {"dijkstra": DijkstraRouter, "astar": AStarRouter,
                  "congestion-aware": CongestionAwareRouter}
     if name == "hazard-aware":

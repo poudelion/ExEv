@@ -48,6 +48,15 @@ class SimulationResult:
     mean_hazard_exposure: float = 0.0
     max_hazard_exposure: float = 0.0
     events_processed: int = 0
+    qubo_batches: int = 0
+    qubo_total_variables: int = 0
+    qubo_max_variables: int = 0
+    qubo_energy: float = 0.0
+    qubo_annealing_iterations: int = 0
+    qubo_accepted_moves: int = 0
+    qubo_fallback_batches: int = 0
+    qubo_planned_flow: int = 0
+    qubo_planned_cost: float = 0.0
 
     @property
     def evacuation_rate(self) -> float:
@@ -259,4 +268,13 @@ class EvacuationSimulation:
             mean_hazard_exposure=mean(exposures) if exposures else 0.0,
             max_hazard_exposure=max(exposures, default=0.0),
             events_processed=self.disaster_schedule.events_processed,
+            qubo_batches=getattr(self.router, "qubo_batches", 0),
+            qubo_total_variables=getattr(self.router, "qubo_total_variables", 0),
+            qubo_max_variables=getattr(self.router, "qubo_max_variables", 0),
+            qubo_energy=getattr(self.router, "qubo_energy", 0.0),
+            qubo_annealing_iterations=getattr(self.router, "qubo_annealing_iterations", 0),
+            qubo_accepted_moves=getattr(self.router, "qubo_accepted_moves", 0),
+            qubo_fallback_batches=getattr(self.router, "qubo_fallback_batches", 0),
+            qubo_planned_flow=getattr(self.router, "planned_flow", 0),
+            qubo_planned_cost=getattr(self.router, "planned_cost", 0.0),
         )

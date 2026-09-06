@@ -14,7 +14,7 @@ from .scenarios import grid_scenario
 from .simulation import EvacuationSimulation, SimulationConfig
 
 
-MODEL_VERSION = "stage3-dynamic-v2"
+MODEL_VERSION = "stage4-qubo-v1"
 StatusCallback = Callable[[str], None]
 
 
@@ -28,6 +28,11 @@ class ExperimentConfig:
     reroute_wait_threshold: int = 10
     disaster_profile: str = "none"
     hazard_weight: float = 1.0
+    qubo_batch_size: int = 8
+    qubo_routes_per_shelter: int = 3
+    qubo_congestion_weight: float = 1.0
+    qubo_sweeps: int = 100
+    qubo_restarts: int = 3
 
     def __post_init__(self) -> None:
         if self.width < 2 or self.height < 2:
@@ -42,6 +47,16 @@ class ExperimentConfig:
             raise ValueError(f"unknown disaster profile: {self.disaster_profile}")
         if not isfinite(self.hazard_weight) or self.hazard_weight < 0:
             raise ValueError("hazard_weight must be finite and non-negative")
+        if not isinstance(self.qubo_batch_size, int) or self.qubo_batch_size < 1:
+            raise ValueError("qubo_batch_size must be a positive integer")
+        if not isinstance(self.qubo_routes_per_shelter, int) or self.qubo_routes_per_shelter < 1:
+            raise ValueError("qubo_routes_per_shelter must be a positive integer")
+        if not isfinite(self.qubo_congestion_weight) or self.qubo_congestion_weight < 0:
+            raise ValueError("qubo_congestion_weight must be finite and non-negative")
+        if not isinstance(self.qubo_sweeps, int) or self.qubo_sweeps < 1:
+            raise ValueError("qubo_sweeps must be a positive integer")
+        if not isinstance(self.qubo_restarts, int) or self.qubo_restarts < 1:
+            raise ValueError("qubo_restarts must be a positive integer")
 
 
 def runtime_metadata() -> dict[str, str]:
@@ -66,7 +81,16 @@ def run_scenario(
     """Run one algorithm on fresh state, returning a flat exportable record."""
     if progress_interval < 1:
         raise ValueError("progress_interval must be at least 1")
-    router = create_router(algorithm, hazard_weight=config.hazard_weight)
+    router = create_router(
+        algorithm,
+        qubo_routes_per_shelter=config.qubo_routes_per_shelter,
+        qubo_congestion_weight=config.qubo_congestion_weight,
+        hazard_weight=config.hazard_weight,
+        qubo_batch_size=config.qubo_batch_size,
+        qubo_sweeps=config.qubo_sweeps,
+        qubo_restarts=config.qubo_restarts,
+        seed=config.seed,
+    )
     label = f"[{algorithm} disaster={config.disaster_profile} seed={config.seed}]"
     if status:
         status(

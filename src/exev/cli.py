@@ -52,11 +52,31 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--hazard-weight", type=_nonnegative_float, default=1.0,
-        help="exposure penalty for hazard-aware routing (default: 1.0)",
+        help="exposure penalty for hazard-aware and QUBO routing (default: 1.0)",
+    )
+    parser.add_argument(
+        "--qubo-batch-size", type=_integer_at_least(1), default=8,
+        help="agents per QUBO subproblem (default: 8)",
+    )
+    parser.add_argument(
+        "--qubo-routes-per-shelter", type=_integer_at_least(1), default=3,
+        help="candidate paths per shelter in each QUBO (default: 3)",
+    )
+    parser.add_argument(
+        "--qubo-congestion-weight", type=_nonnegative_float, default=1.0,
+        help="shared-road penalty in the QUBO objective (default: 1.0)",
+    )
+    parser.add_argument(
+        "--qubo-sweeps", type=_integer_at_least(1), default=100,
+        help="annealing sweeps per QUBO restart (default: 100)",
+    )
+    parser.add_argument(
+        "--qubo-restarts", type=_integer_at_least(1), default=3,
+        help="simulated-annealing restarts per QUBO batch (default: 3)",
     )
     parser.add_argument("--router", choices=ROUTER_NAMES, help="default: dijkstra")
     parser.add_argument(
-        "--compare", action="store_true", help="run all five routing baselines"
+        "--compare", action="store_true", help="run all six routing methods"
     )
     parser.add_argument(
         "--seeds", nargs="+", type=int, help="seeds to compare (requires --compare)"
@@ -104,6 +124,11 @@ def main(argv: list[str] | None = None) -> None:
         reroute_wait_threshold=args.reroute_wait,
         disaster_profile=args.disaster,
         hazard_weight=args.hazard_weight,
+        qubo_batch_size=args.qubo_batch_size,
+        qubo_sweeps=args.qubo_sweeps,
+        qubo_routes_per_shelter=args.qubo_routes_per_shelter,
+        qubo_congestion_weight=args.qubo_congestion_weight,
+        qubo_restarts=args.qubo_restarts,
     )
 
     def report(message: str) -> None:
