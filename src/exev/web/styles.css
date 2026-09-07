@@ -51,6 +51,15 @@ header small { color: rgba(255,255,255,.82); letter-spacing: .12em; font-size: .
 }
 
 main { padding: 24px 4vw 44px; }
+.map-loader { margin-bottom: 16px; background: white; border: 1px solid var(--line); }
+.map-loader summary { padding: 12px 16px; color: var(--blue-dark); font-weight: 750; cursor: pointer; }
+.map-fields { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; padding: 4px 16px 16px; }
+.map-fields label { display: grid; gap: 4px; color: var(--muted); font-size: .78rem; font-weight: 650; }
+.map-fields input { min-height: 38px; padding: 7px 9px; font: inherit; border: 1px solid #777; }
+.map-fields button { min-height: 38px; padding: 8px 15px; color: white; background: var(--blue); border: 0; font: 700 .88rem/1.2 inherit; cursor: pointer; }
+#osm-status { color: var(--muted); font-size: .8rem; }
+#osm-preview { display: block; width: calc(100% - 32px); height: 240px; margin: 0 16px 16px; background: #111; border: 4px solid #111; cursor: crosshair; }
+#osm-preview[hidden] { display: none; }
 
 .control-card {
   display: flex;

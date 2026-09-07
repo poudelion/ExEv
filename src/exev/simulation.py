@@ -145,6 +145,7 @@ class EvacuationSimulation:
         self._total_edge_occupancy_ticks = 0
         self._full_edge_ticks = 0
         self._routing_reasons: Counter[str] = Counter()
+        self._routing_reason_agents: dict[str, set[int]] = {}
 
     def run(self, progress: Callable[[EvacuationSimulation], None] | None = None,
             progress_interval: int = 50) -> SimulationResult:
@@ -242,7 +243,9 @@ class EvacuationSimulation:
             )
             replan_at_node = getattr(self.router, "replan_at_nodes", False) and agent.route_index > 0
             if route_invalid or replan_at_node or agent.waiting_time >= self.config.reroute_wait_threshold:
-                self._routing_reasons[self._routing_reason(agent, replan_at_node)] += 1
+                reason = self._routing_reason(agent, replan_at_node)
+                self._routing_reasons[reason] += 1
+                self._routing_reason_agents.setdefault(reason, set()).add(agent.id)
                 start = perf_counter()
                 route = self.router.route(agent, self.network, self.shelters, self.tick)
                 self._routing_seconds += perf_counter() - start
@@ -298,6 +301,12 @@ class EvacuationSimulation:
 
     @property
     def routing_reasons(self) -> dict[str, int]:
+        """Return unique agents affected by each routing reason."""
+        return {reason: len(agent_ids) for reason, agent_ids in self._routing_reason_agents.items()}
+
+    @property
+    def routing_decisions(self) -> dict[str, int]:
+        """Return raw route-request counts for performance diagnostics."""
         return dict(self._routing_reasons)
 
     def _record_network_load(self) -> None:

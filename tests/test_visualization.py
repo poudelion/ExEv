@@ -7,7 +7,11 @@ from pathlib import Path
 
 from exev.experiments import ExperimentConfig
 from exev.ui_cli import main
-from exev.visualization import build_dashboard_payload, build_visualization_run
+from exev.visualization import (
+    build_dashboard_payload,
+    build_osm_dashboard_payload,
+    build_visualization_run,
+)
 
 
 class VisualizationTests(unittest.TestCase):
@@ -39,11 +43,30 @@ class VisualizationTests(unittest.TestCase):
             self.config, ["dijkstra", "hazard-aware"], frame_interval=4
         )
         self.assertEqual(payload["schema_version"], 1)
-        self.assertEqual(payload["metadata"]["package_version"], "0.7.0")
+        self.assertEqual(payload["metadata"]["package_version"], "0.8.0")
         self.assertEqual([run["algorithm"] for run in payload["runs"]],
                          ["dijkstra", "hazard-aware"])
         with self.assertRaises(ValueError):
             build_dashboard_payload(self.config, ["dijkstra", "dijkstra"])
+
+    def test_osm_payload_animates_imported_geometry(self) -> None:
+        source = Path(__file__).parents[1] / "examples" / "tiny-map.osm"
+        payload = build_osm_dashboard_payload(
+            source, ["dijkstra", "astar"], shelter_nodes=["3"],
+            origin_nodes=["1", "4"], agent_count=12, frame_interval=20,
+        )
+        self.assertEqual(payload["map_type"], "openstreetmap")
+        self.assertEqual(payload["configuration"]["import"]["imported_nodes"], 4)
+        self.assertEqual(len(payload["runs"]), 2)
+        self.assertTrue(all(run["result"]["evacuated"] == 12 for run in payload["runs"]))
+        fire = build_osm_dashboard_payload(
+            source, ["hazard-aware"], shelter_nodes=["3"],
+            origin_nodes=["1", "4"], agent_count=4,
+            disaster_profile="fire", frame_interval=20,
+        )
+        self.assertEqual(fire["configuration"]["disaster_profile"], "fire")
+        self.assertGreater(fire["runs"][0]["result"]["events_processed"], 0)
+        self.assertGreater(fire["runs"][0]["result"]["total_hazard_exposure"], 0)
 
     def test_cli_exports_dashboard_json(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -12,11 +12,24 @@
     <div id="scenario" class="scenario"></div>
   </header>
   <main>
+    <details class="map-loader">
+      <summary>Use an OpenStreetMap file</summary>
+      <div class="map-fields">
+        <label>OSM XML <input id="osm-file" type="file" accept=".osm,.xml,text/xml"></label>
+        <label>Origin node IDs <input id="osm-origins" placeholder="101, 102"></label>
+        <label>Shelter node IDs <input id="osm-shelters" placeholder="201, 202"></label>
+        <label>Population <input id="osm-agents" type="number" min="1" max="100000" value="500"></label>
+        <label>Road capacity <select id="osm-capacity"><option value="0.5">0.5×</option><option value="1" selected>1× estimated</option><option value="2">2×</option><option value="4">4×</option></select></label>
+        <label>Click assigns <select id="osm-pick-mode"><option value="origins">Origin</option><option value="shelters">Shelter</option></select></label>
+        <button id="load-osm">Load map</button><span id="osm-status" role="status"></span>
+      </div>
+      <canvas id="osm-preview" aria-label="OSM node selection preview" hidden></canvas>
+    </details>
     <section class="control-card">
       <button id="play" aria-label="Play or pause simulation">Play</button>
       <button id="replay" class="secondary" aria-label="Replay simulation from the beginning" hidden>Replay</button>
       <label>Timeline <input id="timeline" type="range" min="0" value="0"></label>
-      <output id="tick">TICK 000</output>
+      <output id="tick" title="Imported maps use one simulated second per tick; synthetic grids use abstract ticks.">TICK 000</output>
       <label>Hazard <select id="hazard" aria-label="Hazard scenario"></select></label>
       <label>Speed <select id="speed"><option value="800">0.5×</option><option value="400" selected>1×</option><option value="180">2×</option><option value="80">4×</option></select></label>
       <div class="legend"><i class="agent"></i> Active <i class="hazard"></i> Hazard <i class="blocked"></i> Closed <i class="shelter"></i> Shelter</div>
@@ -34,7 +47,7 @@
         <div><small>FINAL TIME</small><strong data-key="final">—</strong></div>
       </div>
       <div class="progress"><span></span></div>
-      <p class="routing-note" data-key="routing">No rerouting decisions yet</p>
+      <p class="routing-note" data-key="routing">No affected agents yet</p>
     </article>
   </template>
   <section id="summary" class="summary" hidden>

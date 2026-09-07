@@ -170,8 +170,8 @@ class QUBOCliTests(unittest.TestCase):
                 "1",
             )
             payload = json.loads(stdout)
-        self.assertEqual(payload["metadata"]["package_version"], "0.7.0")
-        self.assertEqual(payload["metadata"]["model_version"], "stage7-digital-twin-v1")
+        self.assertEqual(payload["metadata"]["package_version"], "0.8.0")
+        self.assertEqual(payload["metadata"]["model_version"], "stage8-osm-v1")
 
         self.assertEqual(payload["variable_count"], 2)
         self.assertEqual(len(payload["backends"]), 2)

@@ -28,7 +28,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(result["evacuated"], 10)
         self.assertEqual(result["evacuation_rate"], 1.0)
         self.assertEqual(result["seed"], 7)
-        self.assertEqual(result["model_version"], "stage7-digital-twin-v1")
+        self.assertEqual(result["model_version"], "stage8-osm-v1")
         self.assertEqual(result["disaster_profile"], "none")
         self.assertIn("Preparing", stderr)
         self.assertIn("tick=0", stderr)

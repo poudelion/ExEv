@@ -5,10 +5,12 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import asdict
 from typing import Any
+from pathlib import Path
 
-from .disasters import grid_disaster_schedule
+from .disasters import geometry_disaster_schedule, grid_disaster_schedule
 from .experiments import ExperimentConfig, runtime_metadata
 from .models import Agent, AgentStatus
+from .osm import load_osm_scenario
 from .routing import create_router
 from .scenarios import grid_scenario
 from .simulation import EvacuationSimulation, SimulationConfig
@@ -174,4 +176,82 @@ def build_dashboard_payload(
             )
             for algorithm in algorithms
         ],
+    }
+
+
+
+def build_osm_dashboard_payload(
+    path: Path,
+    algorithms: list[str],
+    *,
+    shelter_nodes: list[str],
+    origin_nodes: list[str],
+    agent_count: int,
+    seed: int = 7,
+    max_ticks: int = 10_000,
+    disaster_profile: str = "none",
+    frame_interval: int = 10,
+    max_rendered_agents: int = 1_000,
+    capacity_multiplier: float = 1.0,
+) -> dict[str, Any]:
+    """Build dashboard runs from the same local OSM document and selections."""
+    if not 1 <= len(algorithms) <= 2 or len(set(algorithms)) != len(algorithms):
+        raise ValueError("choose one or two unique algorithms")
+    runs = []
+    import_stats = None
+    for algorithm in algorithms:
+        scenario = load_osm_scenario(
+            path, shelter_nodes=shelter_nodes, origin_nodes=origin_nodes,
+            agent_count=agent_count, seed=seed,
+            capacity_multiplier=capacity_multiplier,
+        )
+        import_stats = asdict(scenario.stats)
+        simulation = EvacuationSimulation(
+            scenario.network, scenario.agents, scenario.shelters,
+            router=create_router(algorithm, seed=seed),
+            config=SimulationConfig(max_ticks=max_ticks),
+            disaster_schedule=geometry_disaster_schedule(
+                scenario.network, disaster_profile
+            ),
+        )
+        frames: list[dict[str, Any]] = []
+        def capture(current: EvacuationSimulation) -> None:
+            if not frames or frames[-1]["tick"] != current.tick:
+                frames.append(simulation_snapshot(
+                    current, max_rendered_agents=max_rendered_agents
+                ))
+        result = simulation.run(progress=capture, progress_interval=frame_interval)
+        network = scenario.network
+        runs.append({
+            "algorithm": algorithm,
+            "topology": {
+                "nodes": [
+                    {"id": node, "x": position[0], "y": position[1]}
+                    for node in sorted(network.nodes)
+                    if (position := network.position(node)) is not None
+                ],
+                "edges": [
+                    {"source": edge.source, "target": edge.target,
+                     "capacity": edge.capacity}
+                    for edge in network.edges
+                    if not network.has_edge(edge.target, edge.source)
+                    or edge.source < edge.target
+                ],
+                "shelters": [{"node": node} for node in shelter_nodes],
+            },
+            "frames": frames,
+            "result": {**asdict(result), "evacuation_rate": result.evacuation_rate},
+        })
+    return {
+        "schema_version": 1,
+        "metadata": runtime_metadata(),
+        "map_type": "openstreetmap",
+        "configuration": {
+            "agent_count": agent_count, "seed": seed,
+            "disaster_profile": disaster_profile, "source_name": path.name,
+            "origin_nodes": origin_nodes, "shelter_nodes": shelter_nodes,
+            "capacity_multiplier": capacity_multiplier, "tick_seconds": 1.0,
+            "import": import_stats,
+        },
+        "runs": runs,
     }

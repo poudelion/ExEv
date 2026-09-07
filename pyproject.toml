@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ExEv"
-version = "0.7.0"
+version = "0.8.0"
 description = "Research simulator for dynamic evacuation routing and optimization"
 requires-python = ">=3.11"
 
@@ -13,6 +13,7 @@ exev = "exev.cli:main"
 exev-study = "exev.study_cli:main"
 exev-qubo = "exev.qubo_cli:main"
 exev-ui = "exev.ui_cli:main"
+exev-osm = "exev.osm_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

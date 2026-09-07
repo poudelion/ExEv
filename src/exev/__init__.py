@@ -1,6 +1,6 @@
 """ExEv: a solver-agnostic evacuation research simulator."""
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 from .disasters import (
     DISASTER_PROFILES,
@@ -13,6 +13,7 @@ from .disasters import (
 )
 from .models import Agent, AgentStatus, Edge, Shelter
 from .network import CityNetwork
+from .osm import OSMImportStats, OSMScenario, load_osm_scenario
 from .flow import MinCostFlowRouter
 from .routing import (
     AStarRouter,
@@ -52,6 +53,7 @@ from .qubo_io import (
 from .simulation import EvacuationSimulation, SimulationConfig, SimulationResult
 from .visualization import (
     build_dashboard_payload,
+    build_osm_dashboard_payload,
     build_visualization_run,
     simulation_snapshot,
 )
@@ -82,6 +84,8 @@ __all__ = [
     "SimulationResult",
     "MinCostFlowRouter",
     "NodeHazardEvent",
+    "OSMImportStats",
+    "OSMScenario",
     "ExactQUBOSolver",
     "QUBOBackendResult",
     "QUBOBenchmarkReport",
@@ -102,12 +106,14 @@ __all__ = [
     "StudyRun",
     "build_route_assignment_qubo",
     "build_dashboard_payload",
+    "build_osm_dashboard_payload",
     "build_visualization_run",
     "compare_qubo_backends",
     "create_router",
     "dumps_qubo",
     "grid_disaster_schedule",
     "loads_qubo",
+    "load_osm_scenario",
     "plan_study",
     "qubo_fingerprint",
     "qubo_from_dict",

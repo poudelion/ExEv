@@ -2,11 +2,11 @@
 
 ExEv is a prototype for studying evacuation routing
 and comparing classical, QUBO, and eventually quantum/hybrid optimization methods.
-Stages 1 through 7 provide a synthetic evacuation simulator, five classical
+Stages 1 through 8 provide a synthetic evacuation simulator, five classical
 baselines, deterministic disaster scenarios, an explicit route-assignment QUBO,
 an exact reference solver, seeded simulated annealing, a reproducible
 experimental pipeline, solver-neutral QUBO benchmarking, and an animated
-digital-twin dashboard.
+digital-twin dashboard, and local OpenStreetMap road-network import.
 
 ## Run a simulation
 
@@ -40,7 +40,7 @@ PYTHONPATH=src python3 -m exev.cli --agents 1000 --quiet
 ```
 
 An optional virtual environment and standard local installation expose the
-shorter `exev`, `exev-study`, `exev-qubo`, and `exev-ui` commands:
+shorter `exev`, `exev-study`, `exev-qubo`, `exev-ui`, and `exev-osm` commands:
 
 ```bash
 python3 -m venv .venv
@@ -50,7 +50,45 @@ exev --agents 5000
 exev-study --dry-run
 exev-qubo --input examples/tiny-qubo.json
 exev-ui --agents 500 --disaster fire
+exev-osm --input examples/tiny-map.osm --shelter-nodes 3 --origin-nodes 1 4
 ```
+
+## Stage 8A: OpenStreetMap road networks
+
+Run the simulator on a local OpenStreetMap XML extract and explicitly select
+OSM node IDs for population origins and shelters:
+
+```bash
+exev-osm \
+  --input examples/tiny-map.osm \
+  --agents 500 \
+  --origin-nodes 1 4 \
+  --shelter-nodes 3 \
+  --router dijkstra
+```
+
+The importer reads `highway=*` ways, preserves explicit and implied one-way
+roads (including `oneway=-1`, motorways, and roundabouts), computes great-circle
+segment distances in meters, projects coordinates for visualization, converts
+numeric `maxspeed` values from km/h or mph, and skips private, proposed,
+construction, abandoned, area, raceway, and services ways. Unknown speed values
+use documented model defaults.
+
+OSM does not provide validated evacuation capacity. ExEv therefore estimates
+road capacity as 20 agents per tagged lane and uses conservative road-type lane
+defaults when `lanes=*` is absent. These values are experimental assumptions,
+not emergency-planning recommendations. Turn restrictions, conditional access,
+and live traffic are not yet imported. Stage 8A reads local `.osm` XML only; it
+does not upload locations or contact the OpenStreetMap API.
+
+The Stage 8B dashboard can load the same files locally. Start `exev-ui`, expand
+**Use an OpenStreetMap file**, select the `.osm` file, enter comma-separated OSM
+node IDs for origins and shelters—or use the preview's Origin/Shelter mode and
+click road nodes—choose a population, and press **Load map**. The file is sent only to the ExEv server bound to `127.0.0.1`, limited to 20 MB,
+and stored only in a temporary file while the simulation is built. Router
+selectors continue to work on the imported map. For imported maps, fire spreads radially from the northwest extent, flood
+rises from the southern extent, and road closure selects central segments. These
+are reproducible geometry-based stress tests—not observed or forecast hazards.
 
 ## Stage 7: digital-twin dashboard
 
@@ -384,8 +422,7 @@ movement, using a rotating agent priority at queues. This reduces permanent
 priority for low IDs but is not a validated fairness policy.
 
 `evacuated_at` uses zero-based tick labels. Thus an evacuation at tick 234 can
-appear in a run with 235 elapsed ticks. There is no conversion from these values
-to real minutes or meters yet.
+appear in a run with 235 elapsed ticks. Synthetic grid ticks remain abstract. For imported OpenStreetMap scenarios, road lengths use meters, agent speeds use meters per second, and **one tick represents one simulated second**. The dashboard therefore shows both ticks and a readable duration for OSM maps. This is a declared unit convention, not yet a calibration against observed evacuation behavior. The OSM road-capacity selector scales lane-based capacity estimates for sensitivity analysis; `1× estimated` is the baseline.
 
 Blocked roads reject new entries and routing avoids them; travelers already on
 that road finish crossing it. The default `none` profile starts with no blocked
@@ -403,7 +440,7 @@ hazard-aware routing. Stage 4 adds batched QUBO assignment and annealing
 diagnostics. Stage 5 adds resumable study sweeps, aggregate statistics, fairness
 metrics, and richer network-load measures. Stage 6A adds portable QUBOs,
 interchangeable solver backends, fingerprints, and backend comparisons. Exported
-runs identify this model as `stage7-digital-twin-v1`; results from older
+runs identify this model as `stage8-osm-v1`; results from older
 model versions should remain labeled separately rather than being pooled.
 
 ## Tests and package layout
@@ -423,6 +460,8 @@ pyproject.toml             Python package metadata and console command
 src/exev/__init__.py       public classes and source version
 src/exev/models.py         agents, edges, shelters, and statuses
 src/exev/network.py        graph, geometry, occupancy, and topology changes
+src/exev/osm.py            OSM XML parsing, units, directions, and scenarios
+src/exev/osm_cli.py        real-map experiment command
 src/exev/disasters.py      event scheduler and synthetic disaster profiles
 src/exev/routing.py        Dijkstra, A*, congestion-aware routing, and factory
 src/exev/flow.py           min-cost-flow assignment and routing
@@ -440,6 +479,7 @@ src/exev/studies.py        study expansion, resume, summaries, and manifests
 src/exev/study_cli.py      study command and parameter-sweep options
 src/exev/cli.py            single-run and comparison command output
 examples/tiny-qubo.json     portable two-variable QUBO example
+examples/tiny-map.osm       small real-coordinate OSM import example
 tests/                    simulation, routing, flow, and CLI/experiment checks
 ```
 
@@ -457,7 +497,10 @@ tests/                    simulation, routing, flow, and CLI/experiment checks
    backend comparisons implemented; external hardware adapter remains next.
 7. Digital-twin UI: animated agents, hazards, congestion, shelters, playback,
    and side-by-side algorithm comparisons: implemented for synthetic maps.
-8. Real data: OpenStreetMap and public hazard/evacuation datasets.
+8. Real data: local OpenStreetMap XML import with real geometry, direction,
+   distances, selected origins and shelters, plus dashboard file loading and
+   animation: implemented; public hazard and
+   evacuation datasets remain next.
 
 The current synthetic simulator is a research prototype and has not been
 validated for operational evacuation decisions.

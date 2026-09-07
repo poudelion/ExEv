@@ -14,7 +14,7 @@ from .scenarios import grid_scenario
 from .simulation import EvacuationSimulation, SimulationConfig
 
 
-MODEL_VERSION = "stage7-digital-twin-v1"
+MODEL_VERSION = "stage8-osm-v1"
 StatusCallback = Callable[[str], None]
 
 

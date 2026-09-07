@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import isfinite
+from math import hypot, isfinite
 from typing import Protocol
 
 from .models import Shelter
@@ -242,5 +242,71 @@ def grid_disaster_schedule(
         closure_tick = 5 * (height - 1 - row)
         events.append(RoadStatusEvent(
             closure_tick, *crossing(row), blocked=True, bidirectional=True
+        ))
+    return DisasterSchedule(events)
+
+
+
+def geometry_disaster_schedule(
+    network: CityNetwork, profile: str = "none"
+) -> DisasterSchedule:
+    """Create deterministic stress-test hazards from arbitrary map geometry.
+
+    These are geometry-relative experimental scenarios, not observed hazards.
+    """
+    if profile not in DISASTER_PROFILES:
+        raise ValueError(f"unknown disaster profile: {profile}")
+    if profile == "none":
+        return DisasterSchedule()
+    positions = {node: network.position(node) for node in network.nodes}
+    if not positions or any(position is None for position in positions.values()):
+        raise ValueError("geometry hazards require coordinates for every network node")
+    points = {node: position for node, position in positions.items() if position is not None}
+    xs = [point[0] for point in points.values()]
+    ys = [point[1] for point in points.values()]
+    span = max(max(xs) - min(xs), max(ys) - min(ys), 1.0)
+
+    physical_edges = [
+        edge for edge in network.edges
+        if not network.has_edge(edge.target, edge.source) or edge.source < edge.target
+    ]
+    if profile == "road-closure":
+        center_x, center_y = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+        ranked = sorted(physical_edges, key=lambda edge: hypot(
+            (points[edge.source][0] + points[edge.target][0]) / 2 - center_x,
+            (points[edge.source][1] + points[edge.target][1]) / 2 - center_y,
+        ))
+        selected = ranked[:max(1, min(3, len(ranked) // 10 or 1))]
+        events: list[DisasterEvent] = []
+        for edge in selected:
+            both = network.has_edge(edge.target, edge.source)
+            events.append(RoadStatusEvent(10, edge.source, edge.target, True, both))
+            events.append(RoadStatusEvent(100, edge.source, edge.target, False, both))
+        return DisasterSchedule(events)
+
+    events = []
+    arrival: dict[str, int] = {}
+    if profile == "fire":
+        origin = min(points, key=lambda node: points[node][0] + points[node][1])
+        ox, oy = points[origin]
+        arrival = {
+            node: round(60 * hypot(point[0] - ox, point[1] - oy) / span)
+            for node, point in points.items()
+        }
+        node_intensity, edge_intensity = 1.0, 0.7
+    else:
+        bottom = max(ys)
+        arrival = {
+            node: round(60 * (bottom - point[1]) / span)
+            for node, point in points.items()
+        }
+        node_intensity, edge_intensity = 0.8, 0.5
+    for node, tick in arrival.items():
+        events.append(NodeHazardEvent(max(0, tick), node, node_intensity))
+    for edge in physical_edges:
+        both = network.has_edge(edge.target, edge.source)
+        events.append(EdgeHazardEvent(
+            max(arrival[edge.source], arrival[edge.target]),
+            edge.source, edge.target, edge_intensity, both,
         ))
     return DisasterSchedule(events)

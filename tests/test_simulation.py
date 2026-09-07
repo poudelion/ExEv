@@ -109,6 +109,18 @@ class SimulationTests(unittest.TestCase):
         self.assertLessEqual(result.mean_edge_utilization, 1)
         self.assertEqual(result.hazard_exposure_gini, 0)
 
+    def test_routing_reasons_count_unique_affected_agents(self) -> None:
+        network = CityNetwork()
+        network.add_edge("A", "B", distance=20, capacity=1)
+        agents = [Agent(1, "A"), Agent(2, "A")]
+        simulation = EvacuationSimulation(
+            network, agents, [Shelter("B", 2)],
+            config=SimulationConfig(max_ticks=15, reroute_wait_threshold=2),
+        )
+        simulation.run()
+        self.assertEqual(simulation.routing_reasons["congestion delay"], 1)
+        self.assertGreater(simulation.routing_decisions["congestion delay"], 1)
+
     def test_blocked_route_is_avoided(self) -> None:
         network = CityNetwork()
         network.add_edge("A", "B", distance=1, capacity=2)

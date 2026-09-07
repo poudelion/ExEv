@@ -10,12 +10,13 @@ from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib.resources import files
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from urllib.parse import parse_qs, urlsplit
 
 from .disasters import DISASTER_PROFILES
 from .experiments import ExperimentConfig
 from .routing import ROUTER_NAMES
-from .visualization import build_dashboard_payload
+from .visualization import build_dashboard_payload, build_osm_dashboard_payload
 
 
 def _positive(value: str) -> int:
@@ -111,6 +112,54 @@ def _serve(
                 )
             self.send_response(200)
             self.send_header("Content-Type", f"{content_type}; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self) -> None:  # noqa: N802
+            request = urlsplit(self.path)
+            if request.path != "/api/osm/simulation":
+                self.send_error(404)
+                return
+            length = int(self.headers.get("Content-Length", "0"))
+            if length < 1 or length > 20_000_000:
+                self.send_error(413, "OSM file must be between 1 byte and 20 MB")
+                return
+            query = parse_qs(request.query)
+            algorithms = tuple(filter(None, query.get("routers", [""])[0].split(",")))
+            origins = list(filter(None, query.get("origins", [""])[0].split(",")))
+            shelters = list(filter(None, query.get("shelters", [""])[0].split(",")))
+            try:
+                agents = int(query.get("agents", ["500"])[0])
+                capacity_multiplier = float(query.get("capacity_multiplier", ["1"])[0])
+                disaster = query.get("disaster", ["none"])[0]
+                if disaster not in DISASTER_PROFILES:
+                    raise ValueError("unknown disaster profile")
+                if not 1 <= len(algorithms) <= 2 or any(
+                    name not in ROUTER_NAMES for name in algorithms
+                ):
+                    raise ValueError("choose one or two valid routers")
+                with NamedTemporaryFile(suffix=".osm") as temporary:
+                    temporary.write(self.rfile.read(length))
+                    temporary.flush()
+                    generated = build_osm_dashboard_payload(
+                        Path(temporary.name), list(algorithms),
+                        shelter_nodes=shelters, origin_nodes=origins,
+                        agent_count=agents, seed=config.seed,
+                        disaster_profile=disaster,
+                        capacity_multiplier=capacity_multiplier,
+                        frame_interval=frame_interval,
+                        max_rendered_agents=max_rendered_agents,
+                    )
+                uploaded_name = Path(query.get("name", ["OSM map"])[0]).name
+                generated["configuration"]["source_name"] = uploaded_name or "OSM map"
+                body = json.dumps(generated, separators=(",", ":")).encode()
+                status = 200
+            except (ValueError, OSError) as exc:
+                body = json.dumps({"error": str(exc)}).encode()
+                status = 400
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
