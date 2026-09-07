@@ -2,10 +2,11 @@
 
 ExEv is a prototype for studying evacuation routing
 and comparing classical, QUBO, and eventually quantum/hybrid optimization methods.
-Stages 1 through 6 provide a synthetic evacuation simulator, five classical
+Stages 1 through 7 provide a synthetic evacuation simulator, five classical
 baselines, deterministic disaster scenarios, an explicit route-assignment QUBO,
 an exact reference solver, seeded simulated annealing, a reproducible
-experimental pipeline, and solver-neutral QUBO interchange and benchmarking.
+experimental pipeline, solver-neutral QUBO benchmarking, and an animated
+digital-twin dashboard.
 
 ## Run a simulation
 
@@ -39,7 +40,7 @@ PYTHONPATH=src python3 -m exev.cli --agents 1000 --quiet
 ```
 
 An optional virtual environment and standard local installation expose the
-shorter `exev`, `exev-study`, and `exev-qubo` commands:
+shorter `exev`, `exev-study`, `exev-qubo`, and `exev-ui` commands:
 
 ```bash
 python3 -m venv .venv
@@ -48,7 +49,32 @@ python -m pip install .
 exev --agents 5000
 exev-study --dry-run
 exev-qubo --input examples/tiny-qubo.json
+exev-ui --agents 500 --disaster fire
 ```
+
+## Stage 7: digital-twin dashboard
+
+Run two routing strategies on identical fresh scenarios and animate their
+results side by side:
+
+```bash
+exev-ui \
+  --agents 500 \
+  --width 10 \
+  --height 8 \
+  --disaster fire \
+  --routers dijkstra hazard-aware
+```
+
+Open the printed local URL in a browser. The dashboard displays moving agents,
+hazard intensity, closed roads, congestion, shelter locations, evacuation
+progress, and final completion time. Use the timeline, play/pause control, and
+speed selector to inspect route behavior. Each panel includes a router dropdown, and the control bar includes a hazard
+selector. Changing either reruns the selected strategies on the same seeded map
+and population. Add `--open` to launch
+the browser automatically. For reproducible artifacts, `--export dashboard.json` writes the
+same versioned data without starting a server. `--render-agents` limits only the
+dots sent to the browser; all agents still contribute to simulation metrics.
 
 Reinstall with `python -m pip install . --force-reinstall` after changing source.
 On macOS, an editable `pip install -e .` can produce a hidden `.pth` file that
@@ -376,7 +402,7 @@ hazard-aware routing. Stage 4 adds batched QUBO assignment and annealing
 diagnostics. Stage 5 adds resumable study sweeps, aggregate statistics, fairness
 metrics, and richer network-load measures. Stage 6A adds portable QUBOs,
 interchangeable solver backends, fingerprints, and backend comparisons. Exported
-runs identify this model as `stage6-backends-v1`; results from older
+runs identify this model as `stage7-digital-twin-v1`; results from older
 model versions should remain labeled separately rather than being pooled.
 
 ## Tests and package layout
@@ -403,6 +429,9 @@ src/exev/qubo.py           QUBO model, solver protocol, solvers, and QUBO router
 src/exev/qubo_io.py        versioned QUBO JSON and stable fingerprints
 src/exev/qubo_benchmark.py identical-model backend comparisons and validation
 src/exev/qubo_cli.py       serialized-QUBO comparison command
+src/exev/visualization.py simulation frame capture and dashboard payloads
+src/exev/ui_cli.py         local digital-twin server and export command
+src/exev/web/              responsive canvas dashboard assets
 src/exev/simulation.py     movement engine, progress callbacks, and metrics
 src/exev/scenarios.py      deterministic synthetic grid scenarios
 src/exev/experiments.py    fresh-state comparisons and metadata
@@ -425,7 +454,8 @@ tests/                    simulation, routing, flow, and CLI/experiment checks
    summaries, tail metrics, fairness, and richer congestion measures: implemented.
 6. Quantum/hybrid: solver abstraction, QUBO interchange, and controlled local
    backend comparisons implemented; external hardware adapter remains next.
-7. Digital-twin UI: animated agents, hazards, and algorithm comparisons.
+7. Digital-twin UI: animated agents, hazards, congestion, shelters, playback,
+   and side-by-side algorithm comparisons: implemented for synthetic maps.
 8. Real data: OpenStreetMap and public hazard/evacuation datasets.
 
 The current synthetic simulator is a research prototype and has not been

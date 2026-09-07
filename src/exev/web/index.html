@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ExEv Digital Twin</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header>
+    <div><strong class="brand">ExEv</strong></div>
+    <div id="scenario" class="scenario"></div>
+  </header>
+  <main>
+    <section class="control-card">
+      <button id="play" aria-label="Play or pause simulation">Play</button>
+      <button id="replay" class="secondary" aria-label="Replay simulation from the beginning" hidden>Replay</button>
+      <label>Timeline <input id="timeline" type="range" min="0" value="0"></label>
+      <output id="tick">TICK 000</output>
+      <label>Hazard <select id="hazard" aria-label="Hazard scenario"></select></label>
+      <label>Speed <select id="speed"><option value="800">0.5×</option><option value="400" selected>1×</option><option value="180">2×</option><option value="80">4×</option></select></label>
+      <div class="legend"><i class="agent"></i> Active <i class="hazard"></i> Hazard <i class="blocked"></i> Closed <i class="shelter"></i> Shelter</div>
+    </section>
+    <section id="panels" class="panels" aria-live="polite"></section>
+  </main>
+  <template id="panel-template">
+    <article class="panel">
+      <div class="panel-head"><label><small>ROUTING STRATEGY</small><select class="router-select" aria-label="Routing strategy"></select></label><span class="status">RUNNING</span></div>
+      <canvas></canvas>
+      <div class="metrics">
+        <div><small>EVACUATED</small><strong data-key="evacuated">0</strong></div>
+        <div><small>ACTIVE</small><strong data-key="active">0</strong></div>
+        <div><small>EXPOSURE</small><strong data-key="exposure">0</strong></div>
+        <div><small>FINAL TIME</small><strong data-key="final">—</strong></div>
+      </div>
+      <div class="progress"><span></span></div>
+    </article>
+  </template>
+  <script src="/app.js"></script>
+</body>
+</html>

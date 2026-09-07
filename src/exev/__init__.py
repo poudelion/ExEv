@@ -1,6 +1,6 @@
 """ExEv: a solver-agnostic evacuation research simulator."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 from .disasters import (
     DISASTER_PROFILES,
@@ -50,6 +50,11 @@ from .qubo_io import (
     write_qubo,
 )
 from .simulation import EvacuationSimulation, SimulationConfig, SimulationResult
+from .visualization import (
+    build_dashboard_payload,
+    build_visualization_run,
+    simulation_snapshot,
+)
 from .studies import (
     StudyDefinition,
     StudyOutcome,
@@ -96,6 +101,8 @@ __all__ = [
     "StudyOutcome",
     "StudyRun",
     "build_route_assignment_qubo",
+    "build_dashboard_payload",
+    "build_visualization_run",
     "compare_qubo_backends",
     "create_router",
     "dumps_qubo",
@@ -108,5 +115,6 @@ __all__ = [
     "read_qubo",
     "run_study",
     "summarize_records",
+    "simulation_snapshot",
     "write_qubo",
 ]
