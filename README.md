@@ -2,10 +2,10 @@
 
 ExEv is a prototype for studying evacuation routing
 and comparing classical, QUBO, and eventually quantum/hybrid optimization methods.
-Stages 1 through 5 provide a synthetic evacuation simulator, five classical
+Stages 1 through 6 provide a synthetic evacuation simulator, five classical
 baselines, deterministic disaster scenarios, an explicit route-assignment QUBO,
-an exact reference solver, seeded simulated annealing, and a reproducible
-experimental pipeline.
+an exact reference solver, seeded simulated annealing, a reproducible
+experimental pipeline, and solver-neutral QUBO interchange and benchmarking.
 
 ## Run a simulation
 
@@ -39,7 +39,7 @@ PYTHONPATH=src python3 -m exev.cli --agents 1000 --quiet
 ```
 
 An optional virtual environment and standard local installation expose the
-shorter `exev` and `exev-study` commands:
+shorter `exev`, `exev-study`, and `exev-qubo` commands:
 
 ```bash
 python3 -m venv .venv
@@ -47,6 +47,7 @@ source .venv/bin/activate
 python -m pip install .
 exev --agents 5000
 exev-study --dry-run
+exev-qubo --input examples/tiny-qubo.json
 ```
 
 Reinstall with `python -m pip install . --force-reinstall` after changing source.
@@ -172,7 +173,7 @@ PYTHONPATH=src python3 -m exev.study_cli --maps 8x8 --agents 100 500 1000 --seed
 With the default six algorithms, that example expands to 360 simulations.
 Start with `--dry-run`, then use a smaller pilot before a long sweep because
 QUBO simulated annealing is substantially slower than the classical baselines.
-An editable installation also exposes the equivalent `exev-study` command.
+A local installation also exposes the equivalent `exev-study` command.
 
 Every completed simulation is flushed immediately to the raw CSV. Running the
 same command again resumes it using deterministic `run_id` values and skips
@@ -194,6 +195,43 @@ Parameter sweeps are algorithm-aware. Hazard weights expand `hazard-aware` and
 expand only `qubo-sa`. Irrelevant settings do not create duplicate classical
 baseline runs. This supports controlled comparisons while retaining every seed
 instead of hiding failures inside an average.
+
+## Stage 6A: solver-neutral QUBO experiments
+
+Stage 6 begins with a backend-neutral boundary rather than a hardware-specific
+claim. Any local or remote backend can implement
+`solve(model, initial_sample)` and return a validated `QUBOSolution`. The
+batched evacuation router also accepts an injected backend while retaining
+seeded simulated annealing as its dependency-free default.
+
+QUBOs can be written to a versioned, name-based JSON format and reconstructed
+without changing their energy function. A SHA-256 fingerprint identifies the
+mathematical problem, so different solvers can be shown to have received the
+same linear terms, quadratic terms, variable order, and constant.
+
+Compare the included exact and simulated-annealing backends on the example:
+
+```bash
+PYTHONPATH=src python3 -m exev.qubo_cli \
+  --input examples/tiny-qubo.json \
+  --initial-sample 10 \
+  --sweeps 100 \
+  --restarts 3
+```
+
+After installation, `exev-qubo` is equivalent. The report records the QUBO
+fingerprint, term counts, sample, recomputed energy, gap from the best observed
+energy, iteration counters, and measured solve time. An exact result proves the
+optimum only when the model is within the configured enumeration limit, which
+defaults to 24 variables. Without exact enumeration, best observed is not a
+proof of optimality.
+
+The generic JSON format describes an unconstrained binary objective, so
+`constraint_feasible` is null in the CLI report. Programmatic route-assignment
+benchmarks can pass `RouteAssignmentQUBO.is_feasible` to
+`compare_qubo_backends` and receive an explicit feasibility result. This
+validation boundary is where a later D-Wave adapter will report samples and
+hardware timing. Stage 6A does not claim quantum execution or advantage.
 
 ## Dynamic disasters
 
@@ -336,8 +374,9 @@ improvement. Stage 3 retains the synchronous movement rules and adds beginning-
 of-tick events and exposure accounting. Stage 3 v2 strengthens closures and adds
 hazard-aware routing. Stage 4 adds batched QUBO assignment and annealing
 diagnostics. Stage 5 adds resumable study sweeps, aggregate statistics, fairness
-metrics, and richer network-load measures. Exported runs identify this model as
-`stage5-experiments-v1`; results from older
+metrics, and richer network-load measures. Stage 6A adds portable QUBOs,
+interchangeable solver backends, fingerprints, and backend comparisons. Exported
+runs identify this model as `stage6-backends-v1`; results from older
 model versions should remain labeled separately rather than being pooled.
 
 ## Tests and package layout
@@ -349,8 +388,8 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 The tests cover movement and capacity behavior, optimal shortest-path, flow, and
 small QUBO assignments, annealing reproducibility, routing cache validity,
 scheduled disasters, hazard exposure, reproducible comparisons, study planning and
-resume behavior, CLI validation, export parsing, and separation of progress from
-result output.
+resume behavior, QUBO serialization, backend validation, CLI parsing, and
+separation of progress from result output.
 
 ```text
 pyproject.toml             Python package metadata and console command
@@ -360,13 +399,17 @@ src/exev/network.py        graph, geometry, occupancy, and topology changes
 src/exev/disasters.py      event scheduler and synthetic disaster profiles
 src/exev/routing.py        Dijkstra, A*, congestion-aware routing, and factory
 src/exev/flow.py           min-cost-flow assignment and routing
-src/exev/qubo.py           QUBO model, exact/annealing solvers, and QUBO router
+src/exev/qubo.py           QUBO model, solver protocol, solvers, and QUBO router
+src/exev/qubo_io.py        versioned QUBO JSON and stable fingerprints
+src/exev/qubo_benchmark.py identical-model backend comparisons and validation
+src/exev/qubo_cli.py       serialized-QUBO comparison command
 src/exev/simulation.py     movement engine, progress callbacks, and metrics
 src/exev/scenarios.py      deterministic synthetic grid scenarios
 src/exev/experiments.py    fresh-state comparisons and metadata
 src/exev/studies.py        study expansion, resume, summaries, and manifests
 src/exev/study_cli.py      study command and parameter-sweep options
 src/exev/cli.py            single-run and comparison command output
+examples/tiny-qubo.json     portable two-variable QUBO example
 tests/                    simulation, routing, flow, and CLI/experiment checks
 ```
 
@@ -380,7 +423,8 @@ tests/                    simulation, routing, flow, and CLI/experiment checks
    simulated annealing: implemented.
 5. Experimental framework: reproducible, resumable scenario sweeps, aggregate
    summaries, tail metrics, fairness, and richer congestion measures: implemented.
-6. Quantum/hybrid: compatible subproblems on available hardware.
+6. Quantum/hybrid: solver abstraction, QUBO interchange, and controlled local
+   backend comparisons implemented; external hardware adapter remains next.
 7. Digital-twin UI: animated agents, hazards, and algorithm comparisons.
 8. Real data: OpenStreetMap and public hazard/evacuation datasets.
 

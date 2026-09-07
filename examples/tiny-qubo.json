@@ -1,0 +1,27 @@
+{
+  "format": "exev-qubo",
+  "format_version": 1,
+  "vartype": "BINARY",
+  "variables": [
+    "route_a",
+    "route_b"
+  ],
+  "linear": [
+    {
+      "variable": "route_a",
+      "bias": -1.0
+    },
+    {
+      "variable": "route_b",
+      "bias": -1.0
+    }
+  ],
+  "quadratic": [
+    {
+      "first": "route_a",
+      "second": "route_b",
+      "bias": 2.0
+    }
+  ],
+  "constant": 1.0
+}

@@ -10,6 +10,7 @@ from heapq import heappop, heappush
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from math import isfinite
+from typing import Protocol
 
 from .models import Agent, AgentStatus, Shelter
 from .network import CityNetwork
@@ -26,11 +27,35 @@ class QUBOModel:
     constant: float = 0.0
     _indices: dict[str, int] = field(default_factory=dict, init=False, repr=False)
 
+    def __post_init__(self) -> None:
+        if not isfinite(self.constant):
+            raise ValueError("QUBO constant must be finite")
+        if any(not isinstance(name, str) or not name for name in self.variable_names):
+            raise ValueError("QUBO variable names must be non-empty strings")
+        if len(set(self.variable_names)) != len(self.variable_names):
+            raise ValueError("QUBO variable names must be unique")
+        self._indices = {name: index for index, name in enumerate(self.variable_names)}
+        for variable, coefficient in self.linear.items():
+            self._validate_variable(variable)
+            if not isfinite(coefficient):
+                raise ValueError("QUBO coefficients must be finite")
+        for pair, coefficient in self.quadratic.items():
+            if not isinstance(pair, tuple) or len(pair) != 2 or pair[0] >= pair[1]:
+                raise ValueError(
+                    "quadratic keys must be ordered pairs of distinct indices"
+                )
+            self._validate_variable(pair[0])
+            self._validate_variable(pair[1])
+            if not isfinite(coefficient):
+                raise ValueError("QUBO coefficients must be finite")
+
     @property
     def variable_count(self) -> int:
         return len(self.variable_names)
 
     def add_variable(self, name: str) -> int:
+        if not isinstance(name, str) or not name:
+            raise ValueError("QUBO variable names must be non-empty strings")
         if name in self._indices:
             raise ValueError(f"duplicate QUBO variable: {name}")
         index = len(self.variable_names)
@@ -106,6 +131,15 @@ class QUBOSolution:
     accepted_moves: int = 0
 
 
+class QUBOSolver(Protocol):
+    """Backend-neutral contract implemented by local and remote QUBO solvers."""
+
+    def solve(
+        self, model: QUBOModel, initial_sample: Sequence[int] | None = None
+    ) -> QUBOSolution:
+        ...
+
+
 class ExactQUBOSolver:
     """Exhaustive reference solver for validating small QUBOs."""
 
@@ -114,7 +148,11 @@ class ExactQUBOSolver:
             raise ValueError("max_variables must be a non-negative integer")
         self.max_variables = max_variables
 
-    def solve(self, model: QUBOModel) -> QUBOSolution:
+    def solve(
+        self, model: QUBOModel, initial_sample: Sequence[int] | None = None
+    ) -> QUBOSolution:
+        if initial_sample is not None:
+            model.validate_sample(initial_sample)
         if model.variable_count > self.max_variables:
             raise ValueError(
                 f"exact solver supports at most {self.max_variables} variables; "
@@ -526,6 +564,7 @@ class QUBOSimulatedAnnealingRouter(BaseRouter):
         routes_per_shelter: int = 3,
         congestion_weight: float = 1.0,
         hazard_weight: float = 1.0,
+        solver: QUBOSolver | None = None,
     ) -> None:
         super().__init__()
         if not isinstance(batch_size, int) or batch_size < 1:
@@ -536,6 +575,9 @@ class QUBOSimulatedAnnealingRouter(BaseRouter):
             raise ValueError("congestion_weight must be finite and non-negative")
         if not isfinite(hazard_weight) or hazard_weight < 0:
             raise ValueError("hazard_weight must be finite and non-negative")
+        if solver is not None and not callable(getattr(solver, "solve", None)):
+            raise TypeError("solver must implement solve(model, initial_sample)")
+        self.solver = solver
         self.batch_size = batch_size
         self.sweeps = sweeps
         self.restarts = restarts
@@ -641,10 +683,13 @@ class QUBOSimulatedAnnealingRouter(BaseRouter):
                 congestion_weight=self.congestion_weight,
             )
             warm_start = problem.greedy_sample()
-            solver = SimulatedAnnealingQUBOSolver(
-                sweeps=self.sweeps,
-                restarts=self.restarts,
-                seed=self.seed + batch_index,
+            solver = (
+                self.solver
+                or SimulatedAnnealingQUBOSolver(
+                    sweeps=self.sweeps,
+                    restarts=self.restarts,
+                    seed=self.seed + batch_index,
+                )
             )
             solution = solver.solve(problem.model, warm_start)
             if problem.is_feasible(solution.sample):

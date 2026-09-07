@@ -1,6 +1,6 @@
 """ExEv: a solver-agnostic evacuation research simulator."""
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 from .disasters import (
     DISASTER_PROFILES,
@@ -27,10 +27,27 @@ from .qubo import (
     QUBOModel,
     QUBOSimulatedAnnealingRouter,
     QUBOSolution,
+    QUBOSolver,
     RouteAssignmentQUBO,
     RouteOption,
     SimulatedAnnealingQUBOSolver,
     build_route_assignment_qubo,
+)
+from .qubo_benchmark import (
+    QUBOBackendResult,
+    QUBOBenchmarkReport,
+    compare_qubo_backends,
+)
+from .qubo_io import (
+    QUBO_FORMAT,
+    QUBO_FORMAT_VERSION,
+    dumps_qubo,
+    loads_qubo,
+    qubo_fingerprint,
+    qubo_from_dict,
+    qubo_to_dict,
+    read_qubo,
+    write_qubo,
 )
 from .simulation import EvacuationSimulation, SimulationConfig, SimulationResult
 from .studies import (
@@ -61,9 +78,14 @@ __all__ = [
     "MinCostFlowRouter",
     "NodeHazardEvent",
     "ExactQUBOSolver",
+    "QUBOBackendResult",
+    "QUBOBenchmarkReport",
     "QUBOModel",
+    "QUBO_FORMAT",
+    "QUBO_FORMAT_VERSION",
     "QUBOSimulatedAnnealingRouter",
     "QUBOSolution",
+    "QUBOSolver",
     "RoadStatusEvent",
     "RouteAssignmentQUBO",
     "RouteOption",
@@ -74,9 +96,17 @@ __all__ = [
     "StudyOutcome",
     "StudyRun",
     "build_route_assignment_qubo",
+    "compare_qubo_backends",
     "create_router",
+    "dumps_qubo",
     "grid_disaster_schedule",
+    "loads_qubo",
     "plan_study",
+    "qubo_fingerprint",
+    "qubo_from_dict",
+    "qubo_to_dict",
+    "read_qubo",
     "run_study",
     "summarize_records",
+    "write_qubo",
 ]
