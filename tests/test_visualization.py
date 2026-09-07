@@ -29,6 +29,10 @@ class VisualizationTests(unittest.TestCase):
         final = run["frames"][-1]["counts"]
         self.assertEqual(final["evacuated"] + final["stranded"], 20)
         self.assertTrue(any(frame["nodes"] for frame in run["frames"]))
+        self.assertTrue(all(len(frame["shelters"]) == 2 for frame in run["frames"]))
+        final_shelters = run["frames"][-1]["shelters"]
+        self.assertEqual(sum(item["occupants"] for item in final_shelters), 20)
+        self.assertIn("initial route", run["frames"][-1]["routing_reasons"])
 
     def test_payload_compares_fresh_algorithms(self) -> None:
         payload = build_dashboard_payload(

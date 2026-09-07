@@ -144,6 +144,7 @@ class EvacuationSimulation:
         self._edge_utilization_observations = 0
         self._total_edge_occupancy_ticks = 0
         self._full_edge_ticks = 0
+        self._routing_reasons: Counter[str] = Counter()
 
     def run(self, progress: Callable[[EvacuationSimulation], None] | None = None,
             progress_interval: int = 50) -> SimulationResult:
@@ -241,6 +242,7 @@ class EvacuationSimulation:
             )
             replan_at_node = getattr(self.router, "replan_at_nodes", False) and agent.route_index > 0
             if route_invalid or replan_at_node or agent.waiting_time >= self.config.reroute_wait_threshold:
+                self._routing_reasons[self._routing_reason(agent, replan_at_node)] += 1
                 start = perf_counter()
                 route = self.router.route(agent, self.network, self.shelters, self.tick)
                 self._routing_seconds += perf_counter() - start
@@ -275,6 +277,28 @@ class EvacuationSimulation:
             else:
                 agent.waiting_time += 1
                 agent.total_waiting_time += 1
+
+    def _routing_reason(self, agent: Agent, replan_at_node: bool) -> str:
+        if not agent.route:
+            return "initial route"
+        if agent.route[-1] in self.shelters and self.shelters[agent.route[-1]].available == 0:
+            return "shelter full"
+        if (
+            agent.route_index < len(agent.route) - 1
+            and self.network.edge(
+                agent.route[agent.route_index], agent.route[agent.route_index + 1]
+            ).blocked
+        ):
+            return "road closed"
+        if agent.waiting_time >= self.config.reroute_wait_threshold:
+            return "congestion delay"
+        if replan_at_node:
+            return "dynamic reroute"
+        return "route unavailable"
+
+    @property
+    def routing_reasons(self) -> dict[str, int]:
+        return dict(self._routing_reasons)
 
     def _record_network_load(self) -> None:
         occupancy = self.network.occupancy_snapshot()

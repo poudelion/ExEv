@@ -45,6 +45,17 @@ def simulation_snapshot(
             sum(agent.hazard_exposure for agent in simulation.agents) / len(simulation.agents)
             if simulation.agents else 0.0
         ),
+        "routing_reasons": simulation.routing_reasons,
+        "shelters": [
+            {
+                "node": node,
+                "occupants": shelter.occupants,
+                "capacity": shelter.capacity,
+                "available": shelter.available,
+                "full": shelter.available == 0,
+            }
+            for node, shelter in sorted(simulation.shelters.items())
+        ],
         "agents": [
             {"id": agent.id, "x": x, "y": y, "status": agent.status.value}
             for agent in selected

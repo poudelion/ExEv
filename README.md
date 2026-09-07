@@ -67,8 +67,9 @@ exev-ui \
 ```
 
 Open the printed local URL in a browser. The dashboard displays moving agents,
-hazard intensity, closed roads, congestion, shelter locations, evacuation
-progress, and final completion time. Use the timeline, play/pause control, and
+hazard intensity, closed roads, congestion, live shelter occupancy and full
+states, evacuation progress, cumulative rerouting reasons, and a final comparison
+of time, exposure, waiting, and completion fairness. Use the timeline, play/pause control, and
 speed selector to inspect route behavior. Each panel includes a router dropdown, and the control bar includes a hazard
 selector. Changing either reruns the selected strategies on the same seeded map
 and population. Add `--open` to launch
