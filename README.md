@@ -2,9 +2,10 @@
 
 ExEv is a prototype for studying evacuation routing
 and comparing classical, QUBO, and eventually quantum/hybrid optimization methods.
-Stages 1 through 4 provide a synthetic evacuation simulator, five classical
+Stages 1 through 5 provide a synthetic evacuation simulator, five classical
 baselines, deterministic disaster scenarios, an explicit route-assignment QUBO,
-an exact reference solver, and seeded simulated annealing.
+an exact reference solver, seeded simulated annealing, and a reproducible
+experimental pipeline.
 
 ## Run a simulation
 
@@ -37,21 +38,24 @@ PYTHONPATH=src python3 -m exev.cli --agents 1000 --progress-every 20
 PYTHONPATH=src python3 -m exev.cli --agents 1000 --quiet
 ```
 
-An optional virtual environment and editable installation expose the shorter
-`exev` command:
+An optional virtual environment and standard local installation expose the
+shorter `exev` and `exev-study` commands:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-python -m pip install -e .
+python -m pip install .
 exev --agents 5000
+exev-study --dry-run
 ```
 
-If an existing environment reports `ModuleNotFoundError`, use the source command
-above, or set `export PYTHONPATH="$PWD/src"` in that terminal before running
-`exev`. No changes to the system Python or the existing environment are needed
-for source execution. These commands assume the current directory is the project
-root.
+Reinstall with `python -m pip install . --force-reinstall` after changing source.
+On macOS, an editable `pip install -e .` can produce a hidden `.pth` file that
+recent Python versions skip, causing `ModuleNotFoundError` even after a successful
+build. The standard install above avoids that platform issue. Source execution
+also remains available without reinstalling: use the `PYTHONPATH=src` commands
+above or export `PYTHONPATH="$PWD/src"`. These commands assume the current
+directory is the project root.
 
 ## Compare routing methods
 
@@ -150,6 +154,47 @@ PYTHONPATH=src python3 -m exev.cli \
   --qubo-restarts 3
 ```
 
+## Stage 5: reproducible experiment studies
+
+Use the dedicated study command to expand a scenario grid before spending
+compute time:
+
+```bash
+PYTHONPATH=src python3 -m exev.study_cli --dry-run --maps 8x8 --agents 100 500 1000 --seeds 7 8 9 10 11 --disasters none road-closure fire flood
+```
+
+Run that study and save its artifacts under `results/`:
+
+```bash
+PYTHONPATH=src python3 -m exev.study_cli --maps 8x8 --agents 100 500 1000 --seeds 7 8 9 10 11 --disasters none road-closure fire flood --output results/baseline-study.csv --quiet
+```
+
+With the default six algorithms, that example expands to 360 simulations.
+Start with `--dry-run`, then use a smaller pilot before a long sweep because
+QUBO simulated annealing is substantially slower than the classical baselines.
+An editable installation also exposes the equivalent `exev-study` command.
+
+Every completed simulation is flushed immediately to the raw CSV. Running the
+same command again resumes it using deterministic `run_id` values and skips
+completed rows. `--no-resume` instead refuses to touch an existing raw CSV.
+Changing the study definition or model version requires a new output file; ExEv
+rejects rows that do not belong to the current plan.
+
+Each study creates three artifacts:
+
+- `baseline-study.csv`: one auditable row per configuration, algorithm, and seed,
+  including the Git commit and whether the working tree was dirty.
+- `baseline-study.summary.csv`: replicate count, complete-evacuation count, and
+  mean, sample standard deviation, minimum, and maximum for each evaluation metric.
+- `baseline-study.manifest.json`: the exact study definition, model version,
+  source-control metadata, run counts, and artifact paths.
+
+Parameter sweeps are algorithm-aware. Hazard weights expand `hazard-aware` and
+`qubo-sa`; QUBO batch, candidate-route, congestion, sweep, and restart settings
+expand only `qubo-sa`. Irrelevant settings do not create duplicate classical
+baseline runs. This supports controlled comparisons while retaining every seed
+instead of hiding failures inside an average.
+
 ## Dynamic disasters
 
 Use `--disaster` with one of four reproducible profiles:
@@ -208,14 +253,18 @@ version information, so each row can be interpreted independently.
 | `evacuated`, `stranded`, `unfinished` | Agents in each outcome group when execution stops. Unfinished agents can remain when `--max-ticks` is reached. |
 | `evacuation_rate` | Evacuated / total agents; defined as 1.0 for an empty population. |
 | `mean_evacuation_time`, `max_evacuation_time` | Arrival tick statistics for evacuated agents only; null when no one evacuated. |
-| `mean_waiting_time` | Queue ticks averaged over all agents. |
-| `mean_distance_traveled` | Actual traveled distance averaged over all agents, including incomplete trips. |
+| `p50_evacuation_time`, `p90_evacuation_time`, `p95_evacuation_time` | Median and upper-tail arrival ticks for evacuated agents. |
+| `total_waiting_time`, `mean_waiting_time`, `p95_waiting_time` | Aggregate, average, and upper-tail queue delay across all agents. |
+| `total_distance_traveled`, `mean_distance_traveled` | Actual distance across all agents, including incomplete trips. |
+| `completion_time_gini`, `hazard_exposure_gini` | Dispersion from 0 (equal) toward 1 (unequal). Completion uses the final tick as a censored value for agents not evacuated. |
+| `slow_agent_mean_evacuation_time`, `fast_agent_mean_evacuation_time`, `speed_group_evacuation_gap` | Evacuated-only means for the slowest and fastest speed groups and slow-minus-fast gap; null when a group has no evacuated member. |
 | `peak_congestion` | Highest observed occupancy/capacity ratio on any directed road. |
+| `total_edge_occupancy_ticks`, `full_edge_ticks`, `mean_edge_utilization` | Network load: summed road occupancy, number of directed edge/tick observations at capacity, and average occupancy/capacity across all directed roads and ticks. |
 | `wall_seconds` | Wall-clock time inside the simulation run, including preparation and progress callbacks; excludes scenario construction and output serialization. |
 | `preparation_seconds` | Time spent preparing the router, including the initial min-cost-flow solve. |
 | `routing_seconds` | Time spent in routing calls and per-tick routing updates, excluding initial preparation. |
 | `route_calls`, `route_searches`, `cache_hits`, `expanded_nodes` | Routing activity counters for understanding repeated requests, reuse, and search work. |
-| `total_hazard_exposure`, `mean_hazard_exposure`, `max_hazard_exposure` | Abstract cumulative exposure across all agents and its per-agent summary. |
+| `total_hazard_exposure`, `mean_hazard_exposure`, `p95_hazard_exposure`, `max_hazard_exposure` | Abstract cumulative exposure across all agents and its per-agent summary. |
 | `qubo_batches`, `qubo_total_variables`, `qubo_max_variables` | Number and size of QUBO subproblems; zero for other routers. |
 | `qubo_energy` | Sum of selected batch energies. This diagnostic includes penalty constants and should not be compared across different QUBO configurations. |
 | `qubo_annealing_iterations`, `qubo_accepted_moves`, `qubo_fallback_batches` | Simulated-annealing work and the number of batches that used the feasible warm-start fallback. |
@@ -241,10 +290,10 @@ and progress intervals must be positive. Use either `--seed` or `--seeds`;
 `--seeds` requires `--compare`. The comparison runner retains every seed's result
 without averaging away failed or incomplete evacuations.
 
-These exports are an initial benchmark runner. The broader Stage 5 framework
-will add scenario sweeps, uncertainty analysis, fairness, and richer congestion
-measures. Peak road load alone is a coarse congestion indicator and often
-reaches 1.0 across methods.
+Stage 5 retains raw seed-level outcomes and adds aggregate summaries; use both.
+Averages alone can hide incomplete evacuations, tail delays, or unequal exposure.
+Peak road load is still a coarse indicator and often reaches 1.0, so interpret it
+alongside edge utilization, full-edge ticks, waiting time, and completion rate.
 
 ## Model assumptions
 
@@ -285,9 +334,11 @@ algorithms may also choose different tied routes. Old Stage 1 output numbers
 therefore should not be compared directly with Stage 2 as evidence of algorithmic
 improvement. Stage 3 retains the synchronous movement rules and adds beginning-
 of-tick events and exposure accounting. Stage 3 v2 strengthens closures and adds
-hazard-aware routing. Stage 4 adds batched QUBO assignment and annealing diagnostics.
-Exported runs identify this model as `stage4-qubo-v1`; results from older model
-versions should remain labeled separately rather than being pooled.
+hazard-aware routing. Stage 4 adds batched QUBO assignment and annealing
+diagnostics. Stage 5 adds resumable study sweeps, aggregate statistics, fairness
+metrics, and richer network-load measures. Exported runs identify this model as
+`stage5-experiments-v1`; results from older
+model versions should remain labeled separately rather than being pooled.
 
 ## Tests and package layout
 
@@ -297,8 +348,9 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 The tests cover movement and capacity behavior, optimal shortest-path, flow, and
 small QUBO assignments, annealing reproducibility, routing cache validity,
-scheduled disasters, hazard exposure, reproducible comparisons, CLI validation,
-export parsing, and separation of progress from result output.
+scheduled disasters, hazard exposure, reproducible comparisons, study planning and
+resume behavior, CLI validation, export parsing, and separation of progress from
+result output.
 
 ```text
 pyproject.toml             Python package metadata and console command
@@ -312,7 +364,9 @@ src/exev/qubo.py           QUBO model, exact/annealing solvers, and QUBO router
 src/exev/simulation.py     movement engine, progress callbacks, and metrics
 src/exev/scenarios.py      deterministic synthetic grid scenarios
 src/exev/experiments.py    fresh-state comparisons and metadata
-src/exev/cli.py            command options, progress, JSON and CSV output
+src/exev/studies.py        study expansion, resume, summaries, and manifests
+src/exev/study_cli.py      study command and parameter-sweep options
+src/exev/cli.py            single-run and comparison command output
 tests/                    simulation, routing, flow, and CLI/experiment checks
 ```
 
@@ -324,7 +378,8 @@ tests/                    simulation, routing, flow, and CLI/experiment checks
    shelter changes, exposure metrics, and rerouting: implemented.
 4. QUBO optimization: route assignment, exact validation, and seeded classical
    simulated annealing: implemented.
-5. Experimental framework: automated scenario sweeps and richer evaluation.
+5. Experimental framework: reproducible, resumable scenario sweeps, aggregate
+   summaries, tail metrics, fairness, and richer congestion measures: implemented.
 6. Quantum/hybrid: compatible subproblems on available hardware.
 7. Digital-twin UI: animated agents, hazards, and algorithm comparisons.
 8. Real data: OpenStreetMap and public hazard/evacuation datasets.

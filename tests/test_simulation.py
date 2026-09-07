@@ -87,6 +87,8 @@ class SimulationTests(unittest.TestCase):
         self.assertEqual(result.stranded, 0)
         self.assertEqual(agents[0].status, AgentStatus.EVACUATED)
         self.assertGreater(agents[1].evacuated_at, agents[0].evacuated_at)
+        self.assertGreater(result.speed_group_evacuation_gap, 0)
+        self.assertGreaterEqual(result.p95_evacuation_time, result.p50_evacuation_time)
 
     def test_capacity_creates_queue(self) -> None:
         network = CityNetwork()
@@ -97,6 +99,15 @@ class SimulationTests(unittest.TestCase):
 
         self.assertEqual(result.evacuated, 3)
         self.assertGreater(result.mean_waiting_time, 0)
+        self.assertEqual(result.total_waiting_time, sum(a.total_waiting_time for a in agents))
+        self.assertAlmostEqual(
+            result.total_distance_traveled, sum(a.distance_traveled for a in agents)
+        )
+        self.assertGreater(result.full_edge_ticks, 0)
+        self.assertGreater(result.total_edge_occupancy_ticks, 0)
+        self.assertGreater(result.mean_edge_utilization, 0)
+        self.assertLessEqual(result.mean_edge_utilization, 1)
+        self.assertEqual(result.hazard_exposure_gini, 0)
 
     def test_blocked_route_is_avoided(self) -> None:
         network = CityNetwork()

@@ -14,7 +14,7 @@ from .scenarios import grid_scenario
 from .simulation import EvacuationSimulation, SimulationConfig
 
 
-MODEL_VERSION = "stage4-qubo-v1"
+MODEL_VERSION = "stage5-experiments-v1"
 StatusCallback = Callable[[str], None]
 
 

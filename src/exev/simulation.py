@@ -11,6 +11,29 @@ from .models import Agent, AgentStatus, Shelter
 from .network import CityNetwork
 from .routing import RoutingStats, RoutingStrategy, ShortestDistanceRouter
 
+def _percentile(values: list[float | int], probability: float) -> float | None:
+    """Linearly interpolated percentile for non-empty numeric samples."""
+    if not values:
+        return None
+    ordered = sorted(float(value) for value in values)
+    position = (len(ordered) - 1) * probability
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = position - lower
+    return ordered[lower] + fraction * (ordered[upper] - ordered[lower])
+
+
+def _gini(values: list[float | int]) -> float:
+    """Gini coefficient for non-negative values; zero means no dispersion."""
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    total = sum(ordered)
+    if total == 0:
+        return 0.0
+    weighted = sum(index * value for index, value in enumerate(ordered, start=1))
+    return (2 * weighted) / (len(ordered) * total) - (len(ordered) + 1) / len(ordered)
+
 
 @dataclass(frozen=True, slots=True)
 class SimulationConfig:
@@ -57,6 +80,21 @@ class SimulationResult:
     qubo_fallback_batches: int = 0
     qubo_planned_flow: int = 0
     qubo_planned_cost: float = 0.0
+    p50_evacuation_time: float | None = None
+    p90_evacuation_time: float | None = None
+    p95_evacuation_time: float | None = None
+    total_waiting_time: int = 0
+    p95_waiting_time: float = 0.0
+    total_distance_traveled: float = 0.0
+    p95_hazard_exposure: float = 0.0
+    completion_time_gini: float = 0.0
+    hazard_exposure_gini: float = 0.0
+    slow_agent_mean_evacuation_time: float | None = None
+    fast_agent_mean_evacuation_time: float | None = None
+    speed_group_evacuation_gap: float | None = None
+    total_edge_occupancy_ticks: int = 0
+    full_edge_ticks: int = 0
+    mean_edge_utilization: float = 0.0
 
     @property
     def evacuation_rate(self) -> float:
@@ -102,6 +140,10 @@ class EvacuationSimulation:
         self._routing_seconds = 0.0
         self._route_calls = 0
         self._peak_congestion = 0.0
+        self._edge_utilization_sum = 0.0
+        self._edge_utilization_observations = 0
+        self._total_edge_occupancy_ticks = 0
+        self._full_edge_ticks = 0
 
     def run(self, progress: Callable[[EvacuationSimulation], None] | None = None,
             progress_interval: int = 50) -> SimulationResult:
@@ -142,6 +184,7 @@ class EvacuationSimulation:
             begin_tick(self.network, self.shelters, self.tick)
             self._routing_seconds += perf_counter() - start
         self._process_nodes()
+        self._record_network_load()
         self.tick += 1
 
     def _accumulate_hazard_exposure(self) -> None:
@@ -233,6 +276,16 @@ class EvacuationSimulation:
                 agent.waiting_time += 1
                 agent.total_waiting_time += 1
 
+    def _record_network_load(self) -> None:
+        occupancy = self.network.occupancy_snapshot()
+        for edge in self.network.edges:
+            count = occupancy.get((edge.source, edge.target), 0)
+            self._total_edge_occupancy_ticks += count
+            self._edge_utilization_sum += count / edge.capacity
+            self._edge_utilization_observations += 1
+            if count >= edge.capacity:
+                self._full_edge_ticks += 1
+
     def _has_active_agents(self) -> bool:
         terminal = {AgentStatus.EVACUATED, AgentStatus.STRANDED}
         return any(agent.status not in terminal for agent in self.agents)
@@ -242,6 +295,35 @@ class EvacuationSimulation:
         times = [agent.evacuated_at for agent in self.agents if agent.evacuated_at is not None]
         stats = getattr(self.router, "stats", RoutingStats())
         exposures = [agent.hazard_exposure for agent in self.agents]
+        waiting_times = [agent.total_waiting_time for agent in self.agents]
+        distances = [agent.distance_traveled for agent in self.agents]
+        completion_times = [
+            agent.evacuated_at if agent.evacuated_at is not None else self.tick
+            for agent in self.agents
+        ]
+        if self.agents:
+            slowest_speed = min(agent.speed for agent in self.agents)
+            fastest_speed = max(agent.speed for agent in self.agents)
+            slow_times = [
+                agent.evacuated_at
+                for agent in self.agents
+                if agent.speed == slowest_speed and agent.evacuated_at is not None
+            ]
+            fast_times = [
+                agent.evacuated_at
+                for agent in self.agents
+                if agent.speed == fastest_speed and agent.evacuated_at is not None
+            ]
+        else:
+            slow_times = []
+            fast_times = []
+        slow_mean = mean(slow_times) if slow_times else None
+        fast_mean = mean(fast_times) if fast_times else None
+        speed_gap = (
+            slow_mean - fast_mean
+            if slow_mean is not None and fast_mean is not None
+            else None
+        )
         wall_seconds = self._wall_seconds
         if self._run_started is not None:
             wall_seconds += perf_counter() - self._run_started
@@ -277,4 +359,23 @@ class EvacuationSimulation:
             qubo_fallback_batches=getattr(self.router, "qubo_fallback_batches", 0),
             qubo_planned_flow=getattr(self.router, "planned_flow", 0),
             qubo_planned_cost=getattr(self.router, "planned_cost", 0.0),
+            p50_evacuation_time=_percentile(times, 0.50),
+            p90_evacuation_time=_percentile(times, 0.90),
+            p95_evacuation_time=_percentile(times, 0.95),
+            total_waiting_time=sum(waiting_times),
+            p95_waiting_time=_percentile(waiting_times, 0.95) or 0.0,
+            total_distance_traveled=sum(distances),
+            p95_hazard_exposure=_percentile(exposures, 0.95) or 0.0,
+            completion_time_gini=_gini(completion_times),
+            hazard_exposure_gini=_gini(exposures),
+            slow_agent_mean_evacuation_time=slow_mean,
+            fast_agent_mean_evacuation_time=fast_mean,
+            speed_group_evacuation_gap=speed_gap,
+            total_edge_occupancy_ticks=self._total_edge_occupancy_ticks,
+            full_edge_ticks=self._full_edge_ticks,
+            mean_edge_utilization=(
+                self._edge_utilization_sum / self._edge_utilization_observations
+                if self._edge_utilization_observations
+                else 0.0
+            ),
         )

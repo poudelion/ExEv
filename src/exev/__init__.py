@@ -1,6 +1,6 @@
 """ExEv: a solver-agnostic evacuation research simulator."""
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 from .disasters import (
     DISASTER_PROFILES,
@@ -33,6 +33,14 @@ from .qubo import (
     build_route_assignment_qubo,
 )
 from .simulation import EvacuationSimulation, SimulationConfig, SimulationResult
+from .studies import (
+    StudyDefinition,
+    StudyOutcome,
+    StudyRun,
+    plan_study,
+    run_study,
+    summarize_records,
+)
 
 __all__ = [
     "Agent",
@@ -62,7 +70,13 @@ __all__ = [
     "RoutingStats",
     "ShelterCapacityEvent",
     "SimulatedAnnealingQUBOSolver",
+    "StudyDefinition",
+    "StudyOutcome",
+    "StudyRun",
     "build_route_assignment_qubo",
     "create_router",
     "grid_disaster_schedule",
+    "plan_study",
+    "run_study",
+    "summarize_records",
 ]
